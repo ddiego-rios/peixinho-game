@@ -1,10 +1,12 @@
-# Peixinho Online
+# Peixinho
 
-Jogo multiplayer em Vite + React + TypeScript + Tailwind + Firebase Firestore.
+Jogo de cartas local para uma pessoa, construído com Vite, React, TypeScript, Tailwind CSS e lucide-react. O jogador enfrenta dois adversários controlados pelo navegador.
 
-1. `npm install`
-2. `copy .env.example .env`
-3. Preencha `VITE_FIREBASE_*` no `.env` e ative autenticação anónima e Firestore no Firebase.
-4. `npm run dev`
+## Desenvolvimento
 
-Para Vercel, use `npm run build`, output `dist`, e configure as mesmas variáveis de ambiente no projeto. O `vercel.json` suporta o fallback de rotas SPA. Sem Firebase configurado, a aplicação mostra uma mensagem explicativa em vez de quebrar.
+```bash
+npm install
+npm run dev
+```
+
+O jogo funciona inteiramente no estado da aplicação e não exige Firebase, conta, servidor ou ficheiro `.env`. Para publicar na Vercel, use `npm run build`; o output é `dist` e o `vercel.json` já configura o fallback da SPA.
