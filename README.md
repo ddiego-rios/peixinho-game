@@ -12,6 +12,8 @@ npm run dev
 
 Preencha `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` no `.env`. A chave `anon` é pública e apropriada para o browser; nunca coloque uma chave `service_role` no frontend.
 
+Cada aba usa uma identidade de jogador independente em `sessionStorage`. Assim, duas abas no mesmo browser podem testar jogadores diferentes; atualizar a página na mesma aba preserva a identidade para reconexão.
+
 Execute o conteúdo de [`supabase/schema.sql`](supabase/schema.sql) no SQL Editor do Supabase. O script cria a tabela `rooms`, habilita RLS com as políticas mínimas para o jogo e adiciona a tabela à publicação `supabase_realtime`.
 
 Se o projeto já tinha a versão anterior do schema, execute o ficheiro novamente por inteiro: ele também cria/atualiza a função transacional `join_room`, que impede que dois joins simultâneos sobrescrevam jogadores, e confirma a publicação realtime. No Supabase Dashboard, confirme em **Database > Publications > supabase_realtime** que `rooms` está selecionada.

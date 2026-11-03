@@ -8,14 +8,15 @@ const supabase = supabaseConfigured ? createClient(url, anonKey) : null;
 
 export function signIn(): AppUser {
   const key = 'peixinho-player-id';
-  const existing = window.localStorage.getItem(key);
+  const existing = window.sessionStorage.getItem(key);
   if (existing) return { uid: existing };
   const uid = crypto.randomUUID();
-  window.localStorage.setItem(key, uid);
+  window.sessionStorage.setItem(key, uid);
   return { uid };
 }
 
-type RoomRow = { id: string; data: Record<string, unknown> };
+export type RoomSnapshot = { data: Record<string, unknown> | null; updatedAt: string | null };
+type RoomRow = { id: string; data: Record<string, unknown>; updated_at: string };
 const roomRow = (id: string) => {
   if (!supabase) throw new Error('Supabase não está configurado.');
   return supabase.from('rooms').select('id,data').eq('id', id).single();
@@ -24,7 +25,8 @@ const roomRow = (id: string) => {
 export const readRoom = async (id: string) => {
   const { data, error } = await roomRow(id);
   if (error && error.code !== 'PGRST116') throw error;
-  return (data as RoomRow | null)?.data ?? null;
+  const row = data as RoomRow | null;
+  return { data: row?.data ?? null, updatedAt: row?.updated_at ?? null } satisfies RoomSnapshot;
 };
 
 export const createRoom = async (id: string, data: object) => {
@@ -35,7 +37,7 @@ export const createRoom = async (id: string, data: object) => {
 
 export const updateRoom = async (id: string, data: object) => {
   if (!supabase) throw new Error('Supabase não está configurado.');
-  const { error } = await supabase.from('rooms').update({ data }).eq('id', id);
+  const { error } = await supabase.from('rooms').update({ data, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) throw error;
 };
 
@@ -50,13 +52,16 @@ export const joinRoom = async (id: string, playerId: string, playerName: string)
   return data as Record<string, unknown>;
 };
 
-export const watchRoom = (id: string, callback: (data: Record<string, unknown> | null) => void): (() => void) => {
+export const watchRoom = (id: string, callback: (snapshot: RoomSnapshot) => void): (() => void) => {
   if (!supabase) return () => undefined;
   let channel: RealtimeChannel;
   channel = supabase.channel(`room:${id}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${id}` }, (payload) => {
-      if (payload.eventType === 'DELETE') callback(null);
-      else callback((payload.new as RoomRow).data);
+      if (payload.eventType === 'DELETE') callback({ data: null, updatedAt: new Date().toISOString() });
+      else {
+        const row = payload.new as RoomRow;
+        callback({ data: row.data, updatedAt: row.updated_at });
+      }
     })
     .subscribe((status) => {
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
