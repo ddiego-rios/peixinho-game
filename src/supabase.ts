@@ -39,12 +39,29 @@ export const updateRoom = async (id: string, data: object) => {
   if (error) throw error;
 };
 
+export const joinRoom = async (id: string, playerId: string, playerName: string) => {
+  if (!supabase) throw new Error('Supabase não está configurado.');
+  const { data, error } = await supabase.rpc('join_room', {
+    room_id: id,
+    player_id: playerId,
+    player_name: playerName,
+  });
+  if (error) throw error;
+  return data as Record<string, unknown>;
+};
+
 export const watchRoom = (id: string, callback: (data: Record<string, unknown> | null) => void): (() => void) => {
   if (!supabase) return () => undefined;
   let channel: RealtimeChannel;
-  channel = supabase.channel(`room:${id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${id}` }, (payload) => {
-    if (payload.eventType === 'DELETE') callback(null);
-    else callback((payload.new as RoomRow).data);
-  }).subscribe();
+  channel = supabase.channel(`room:${id}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${id}` }, (payload) => {
+      if (payload.eventType === 'DELETE') callback(null);
+      else callback((payload.new as RoomRow).data);
+    })
+    .subscribe((status) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.error(`Supabase Realtime falhou para a sala ${id}: ${status}`);
+      }
+    });
   return () => { void supabase.removeChannel(channel); };
 };
