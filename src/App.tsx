@@ -137,7 +137,7 @@ export default function App() {
     if (!room || room.hostId !== user?.uid) return;
     const next = cloneRoom(room); const cards = makeDeck(); next.players = next.players.map((player) => ({ ...player, score: 0 })); next.hands = {};
     next.players.forEach((player) => { next.hands[player.id] = cards.splice(-5); });
-    next.status = 'playing'; next.deck = cards; next.turnIndex = 0; next.completedSets = {}; next.logs = [...next.logs, 'O jogo começou!'].slice(-40);
+    next.status = 'playing'; next.deck = cards; next.turnIndex = Math.floor(Math.random() * next.players.length); next.completedSets = {}; next.logs = [...next.logs, `O jogo começou! ${next.players[next.turnIndex].name} começa.`].slice(-40);
     try { await persist(next); } catch { setError('Não foi possível iniciar o jogo.'); }
   };
   const addCompletedSets = (next: Room, player: Player, hand: string[]) => {
