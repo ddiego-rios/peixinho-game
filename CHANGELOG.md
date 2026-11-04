@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0 - 2026-11-04
+
+- Removed the 30-second turn timer and automatic expiration behavior from the client.
+- Restored automatic top-card drawing after a failed request.
+- Added confirmation before leaving a lobby/game and before refreshing or closing a room page.
+- Increased player names to 24 characters with controlled responsive wrapping.
+
 ## 1.2.0 - 2026-11-05
 
 - Moved patch notes and suggestions to the main menu.
