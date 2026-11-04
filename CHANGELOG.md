@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.1 - 2026-11-04
+
+- Removed the legacy fishing-selection flow completely from the client.
+- Failed requests now draw one random card atomically in the request handler, process completed sets, and advance the turn without an intermediate UI state.
+
 ## 1.3.0 - 2026-11-04
 
 - Removed the 30-second turn timer and automatic expiration behavior from the client.
