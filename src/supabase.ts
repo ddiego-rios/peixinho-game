@@ -67,6 +67,18 @@ export const expireTurn = async (id: string, expectedUpdatedAt: string | null, e
   return data as { data: Record<string, unknown>; updatedAt: string } | null;
 };
 
+export const chooseRoomCard = async (id: string, expectedUpdatedAt: string | null, playerId: string, card: string) => {
+  if (!supabase) throw new Error('Supabase não está configurado.');
+  const { data, error } = await supabase.rpc('choose_room_card', {
+    room_id: id,
+    expected_updated_at: expectedUpdatedAt,
+    player_id: playerId,
+    selected_card: card,
+  });
+  if (error) throw error;
+  return data as { data: Record<string, unknown>; updatedAt: string };
+};
+
 export const sendMessage = async (roomId: string, senderId: string, senderName: string, body: string) => {
   if (!supabase) throw new Error('Supabase não está configurado.');
   const { error } = await supabase.from('room_messages').insert({ room_id: roomId, sender_id: senderId, sender_name: senderName, body });
@@ -86,7 +98,7 @@ export const watchMessages = (roomId: string, callback: (message: ChatMessage) =
   return () => { void supabase.removeChannel(channel); };
 };
 
-export const submitSuggestion = async (roomId: string, playerId: string, body: string) => {
+export const submitSuggestion = async (roomId: string | null, playerId: string, body: string) => {
   if (!supabase) throw new Error('Supabase não está configurado.');
   const { error } = await supabase.from('suggestions').insert({ room_id: roomId, player_id: playerId, body });
   if (error) throw error;

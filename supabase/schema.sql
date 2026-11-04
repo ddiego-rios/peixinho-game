@@ -35,7 +35,7 @@ begin
   if current_data is null then raise exception 'Sala não encontrada'; end if;
   if current_data->>'status' <> 'lobby' then raise exception 'O jogo já começou'; end if;
   if exists (select 1 from jsonb_array_elements(current_data->'players') player where player->>'id' = player_id) then return current_data; end if;
-  if jsonb_array_length(current_data->'players') >= 6 then raise exception 'A sala está cheia'; end if;
+  if jsonb_array_length(current_data->'players') >= 8 then raise exception 'A sala está cheia'; end if;
   updated_data := jsonb_set(current_data, '{players}', (current_data->'players') || jsonb_build_array(jsonb_build_object('id', player_id, 'name', player_name, 'score', 0)));
   updated_data := jsonb_set(updated_data, '{logs}', (updated_data->'logs') || jsonb_build_array(player_name || ' entrou na sala.'));
   update public.rooms set data = updated_data, updated_at = now() where id = room_id;
@@ -105,9 +105,50 @@ begin
 end;
 $$;
 
+create or replace function public.choose_room_card(room_id text, expected_updated_at timestamptz, player_id text, selected_card text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_data jsonb;
+  current_updated_at timestamptz;
+  next_data jsonb;
+  next_updated_at timestamptz;
+  player_index integer;
+  selected_exists boolean;
+  remaining_deck jsonb;
+  current_hand jsonb;
+begin
+  select data, updated_at into current_data, current_updated_at
+  from public.rooms where id = room_id for update;
+  if current_data is null then raise exception 'Sala não encontrada'; end if;
+  if expected_updated_at is not null and current_updated_at <> expected_updated_at then raise exception 'Estado da sala mudou; atualize e tente novamente'; end if;
+  if current_data->>'status' <> 'playing' then raise exception 'A partida não está ativa'; end if;
+  player_index := coalesce((select ordinality::integer - 1 from jsonb_array_elements(current_data->'players') with ordinality player where player->>'id' = player_id limit 1), -1);
+  if player_index < 0 or (current_data->'players'->player_index->>'id') <> player_id then raise exception 'Jogador inválido'; end if;
+  if (current_data->>'turnIndex')::integer <> player_index then raise exception 'Não é a vez deste jogador'; end if;
+  if coalesce(current_data->'pendingDraw'->>'playerId', '') <> player_id then raise exception 'Não há pesca pendente para este jogador'; end if;
+  select exists (select 1 from jsonb_array_elements_text(current_data->'deck') card where card = selected_card) into selected_exists;
+  if not selected_exists then raise exception 'Carta inválida ou já escolhida'; end if;
+  select coalesce(jsonb_agg(card), '[]'::jsonb) into remaining_deck
+  from jsonb_array_elements_text(current_data->'deck') card
+  where card <> selected_card;
+  current_hand := coalesce(current_data->'hands'->player_id, '[]'::jsonb);
+  next_data := jsonb_set(current_data, '{deck}', remaining_deck);
+  next_data := jsonb_set(next_data, array['hands', player_id], current_hand || jsonb_build_array(selected_card), true);
+  next_data := jsonb_set(next_data, '{pendingDraw}', 'null'::jsonb);
+  next_updated_at := now();
+  update public.rooms set data = next_data, updated_at = next_updated_at where id = room_id;
+  return jsonb_build_object('data', next_data, 'updatedAt', next_updated_at);
+end;
+$$;
+
 grant execute on function public.join_room(text, text, text) to anon, authenticated;
 grant execute on function public.update_room_state(text, timestamptz, jsonb) to anon, authenticated;
 grant execute on function public.expire_room_turn(text, timestamptz, bigint) to anon, authenticated;
+grant execute on function public.choose_room_card(text, timestamptz, text, text) to anon, authenticated;
 
 alter table public.rooms enable row level security;
 alter table public.room_messages enable row level security;
