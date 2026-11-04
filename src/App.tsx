@@ -111,7 +111,10 @@ export default function App() {
     return true;
   };
   const persist = async (next: Room) => {
-    await updateRoom(next.roomId, roomUpdatedAt, next);
+    const result = await updateRoom(next.roomId, roomUpdatedAt, next);
+    setRoom(next);
+    setRoomUpdatedAt(result.updatedAt);
+    latestRoomUpdate.current = result.updatedAt;
   };
   const create = async () => {
     if (!name.trim() || !online()) return;
@@ -171,9 +174,9 @@ export default function App() {
   };
   const play = async () => {
     if (!room || !user || !opponent || !rank || room.status !== 'playing' || room.players[room.turnIndex]?.id !== currentUserId) return;
-    const next = cloneRoom(room); const target = next.players.find((player) => player.id === opponent.id); const mine = next.hands[currentUserId] ?? [];
+    const next = cloneRoom(room); const target = next.players.find((player) => player.id === opponent.id); const mine = [...(next.hands[currentUserId] ?? [])];
     if (!target || target.id === currentUserId) return;
-    const targetHand = next.hands[target.id] ?? [];
+    const targetHand = [...(next.hands[target.id] ?? [])];
     if (!targetHand.length) {
       setError('Escolha um jogador que ainda tenha cartas.');
       setOpponent(null);
@@ -186,7 +189,7 @@ export default function App() {
     }
     const got = targetHand.filter((card) => card.startsWith(`${rank}-`));
     if (got.length) {
-      next.hands[target.id] = targetHand.filter((card) => !card.startsWith(`${rank}-`)); mine.push(...got); next.logs.push(`${name} pediu ${rank} a ${target.name} e recebeu ${got.length} carta(s).`);
+      next.hands[target.id] = targetHand.filter((card) => !card.startsWith(`${rank}-`)); mine.push(...got); next.hands[currentUserId] = mine; next.logs.push(`${name} pediu ${rank} a ${target.name} e recebeu ${got.length} carta(s).`);
       const result = addCompletedSets(next, { ...next.players.find((player) => player.id === currentUserId)! }, mine); next.hands[currentUserId] = result.remaining;
       const refilled = result.points > 0 && refillEmptyHand(next, currentUserId, name);
       const playerIndex = next.players.findIndex((player) => player.id === currentUserId); next.players[playerIndex].score += result.points;
@@ -196,6 +199,7 @@ export default function App() {
       const drawnCard = next.deck.pop();
       if (drawnCard) {
         mine.push(drawnCard);
+        next.hands[currentUserId] = mine;
         const drawnRank = drawnCard.split('-')[0];
         next.logs.push(`${name} pescou ${drawnRank}.`);
       } else {
