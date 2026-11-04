@@ -6,12 +6,11 @@ import { createRoom, joinRoom, readMessages, readRoom, sendMessage, signIn, subm
 
 type Player = { id: string; name: string; score: number };
 type CompletedSet = { rank: string; cards: string[]; playerName: string; createdAt: number };
-type PendingDraw = { playerId: string };
 type Room = {
   roomId: string; hostId: string; status: 'lobby' | 'playing' | 'finished'; players: Player[];
   deck: string[]; hands: Record<string, string[]>; turnIndex: number; logs: string[];
   createdAt: number;
-  completedSets?: Record<string, CompletedSet[]>; pendingDraw?: PendingDraw | null;
+  completedSets?: Record<string, CompletedSet[]>;
 };
 
 const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
@@ -114,7 +113,7 @@ export default function App() {
   const create = async () => {
     if (!name.trim() || !online()) return;
     const id = roomCode();
-    const initial: Room = { roomId: id, hostId: user!.uid, status: 'lobby', players: [{ id: user!.uid, name: name.trim(), score: 0 }], deck: [], hands: {}, turnIndex: 0, logs: [`${name.trim()} criou a sala.`], createdAt: Date.now(), completedSets: {}, pendingDraw: null };
+    const initial: Room = { roomId: id, hostId: user!.uid, status: 'lobby', players: [{ id: user!.uid, name: name.trim(), score: 0 }], deck: [], hands: {}, turnIndex: 0, logs: [`${name.trim()} criou a sala.`], createdAt: Date.now(), completedSets: {} };
     try { await createRoom(id, initial); setRoomCodeState(id); } catch { setError('Não foi possível criar a sala.'); }
   };
   const join = async (input: string) => {
@@ -138,7 +137,7 @@ export default function App() {
     if (!room || room.hostId !== user?.uid) return;
     const next = cloneRoom(room); const cards = makeDeck(); next.players = next.players.map((player) => ({ ...player, score: 0 })); next.hands = {};
     next.players.forEach((player) => { next.hands[player.id] = cards.splice(-5); });
-    next.status = 'playing'; next.deck = cards; next.turnIndex = 0; next.completedSets = {}; next.pendingDraw = null; next.logs = [...next.logs, 'O jogo começou!'].slice(-40);
+    next.status = 'playing'; next.deck = cards; next.turnIndex = 0; next.completedSets = {}; next.logs = [...next.logs, 'O jogo começou!'].slice(-40);
     try { await persist(next); } catch { setError('Não foi possível iniciar o jogo.'); }
   };
   const addCompletedSets = (next: Room, player: Player, hand: string[]) => {
@@ -157,7 +156,6 @@ export default function App() {
     const allEmpty = next.deck.length === 0 && Object.values(next.hands).every((hand) => hand.length === 0);
     next.status = allEmpty ? 'finished' : 'playing';
     if (!allEmpty) next.turnIndex = keepTurn && (next.hands[next.players[current].id] ?? []).length ? current : activeTurn(next.players, next.hands, current);
-    next.pendingDraw = null;
   };
   const play = async () => {
     if (!room || !user || !opponent || !rank || room.status !== 'playing' || room.players[room.turnIndex]?.id !== currentUserId) return;
