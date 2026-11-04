@@ -16,6 +16,9 @@ type Room = {
 const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 const suits = ['H', 'D', 'C', 'S'];
 const PATCH_NOTES = [
+  'Distribuição oficial: 7 cartas para 2–3 jogadores e 5 cartas para 4 ou mais jogadores.',
+  'Só é possível pedir valores que estejam na sua própria mão.',
+  'Se a pesca trouxer o valor pedido, a vez continua; caso contrário, a vez passa ao próximo jogador.',
   'A pesca acontece automaticamente quando um pedido não encontra cartas; uma carta do topo é adicionada à mão.',
   '“Peixinho!” só aparece quando uma quadra é completada.',
   'Pedidos encontrados transferem as cartas e mantêm a vez; pedidos sem cartas avançam para o próximo jogador.',
@@ -125,7 +128,7 @@ export default function App() {
       const existing = snapshot.data as unknown as Room | null;
       if (!existing) return setError('Sala não encontrada.');
       if (existing.status !== 'lobby') return setError('O jogo já começou.');
-      if (existing.players.length >= 8 && !existing.players.some((player) => player.id === user!.uid)) return setError('A sala está cheia.');
+      if (existing.players.length >= 10 && !existing.players.some((player) => player.id === user!.uid)) return setError('A sala está cheia.');
       await joinRoom(id, user!.uid, name.trim());
       setError(''); setRoomCodeState(id);
     } catch (joinError) {
@@ -136,7 +139,8 @@ export default function App() {
   const start = async () => {
     if (!room || room.hostId !== user?.uid) return;
     const next = cloneRoom(room); const cards = makeDeck(); next.players = next.players.map((player) => ({ ...player, score: 0 })); next.hands = {};
-    next.players.forEach((player) => { next.hands[player.id] = cards.splice(-5); });
+    const cardsPerPlayer = next.players.length <= 3 ? 7 : 5;
+    next.players.forEach((player) => { next.hands[player.id] = cards.splice(-cardsPerPlayer); });
     next.status = 'playing'; next.deck = cards; next.turnIndex = Math.floor(Math.random() * next.players.length); next.completedSets = {}; next.logs = [...next.logs, `O jogo começou! ${next.players[next.turnIndex].name} começa.`].slice(-40);
     try { await persist(next); } catch { setError('Não foi possível iniciar o jogo.'); }
   };
@@ -152,6 +156,14 @@ export default function App() {
     }
     return { remaining, points: completed.length };
   };
+  const refillEmptyHand = (next: Room, playerId: string, playerName: string) => {
+    if ((next.hands[playerId] ?? []).length > 0 || next.deck.length === 0) return false;
+    const card = next.deck.pop();
+    if (!card) return false;
+    next.hands[playerId] = [card];
+    next.logs.push(`${playerName} ficou sem cartas e pescou uma carta para continuar.`);
+    return true;
+  };
   const finishOrAdvance = (next: Room, current: number, keepTurn: boolean) => {
     const allEmpty = next.deck.length === 0 && Object.values(next.hands).every((hand) => hand.length === 0);
     next.status = allEmpty ? 'finished' : 'playing';
@@ -159,28 +171,42 @@ export default function App() {
   };
   const play = async () => {
     if (!room || !user || !opponent || !rank || room.status !== 'playing' || room.players[room.turnIndex]?.id !== currentUserId) return;
-    const next = cloneRoom(room); const target = next.players.find((player) => player.id === opponent.id)!; const mine = next.hands[currentUserId] ?? []; const targetHand = next.hands[target.id] ?? [];
+    const next = cloneRoom(room); const target = next.players.find((player) => player.id === opponent.id); const mine = next.hands[currentUserId] ?? [];
+    if (!target || target.id === currentUserId) return;
+    const targetHand = next.hands[target.id] ?? [];
+    if (!targetHand.length) {
+      setError('Escolha um jogador que ainda tenha cartas.');
+      setOpponent(null);
+      return;
+    }
+    if (!mine.some((card) => card.startsWith(`${rank}-`))) {
+      setError('Só pode pedir um valor que tenha na sua mão.');
+      setRank(null);
+      return;
+    }
     const got = targetHand.filter((card) => card.startsWith(`${rank}-`));
     if (got.length) {
       next.hands[target.id] = targetHand.filter((card) => !card.startsWith(`${rank}-`)); mine.push(...got); next.logs.push(`${name} pediu ${rank} a ${target.name} e recebeu ${got.length} carta(s).`);
       const result = addCompletedSets(next, { ...next.players.find((player) => player.id === currentUserId)! }, mine); next.hands[currentUserId] = result.remaining;
+      const refilled = result.points > 0 && refillEmptyHand(next, currentUserId, name);
       const playerIndex = next.players.findIndex((player) => player.id === currentUserId); next.players[playerIndex].score += result.points;
       finishOrAdvance(next, playerIndex, true);
     } else {
       next.logs.push(`${name} pediu ${rank} a ${target.name}; não encontrou.`);
-      const drawnIndex = next.deck.length > 0 ? Math.floor(Math.random() * next.deck.length) : -1;
-      const drawnCard = drawnIndex >= 0 ? next.deck.splice(drawnIndex, 1)[0] : undefined;
+      const drawnCard = next.deck.pop();
       if (drawnCard) {
         mine.push(drawnCard);
-        next.logs.push(`${name} comprou uma carta do baralho.`);
+        const drawnRank = drawnCard.split('-')[0];
+        next.logs.push(`${name} pescou ${drawnRank}.`);
       } else {
         next.logs.push('O baralho está vazio; a vez passa ao próximo jogador.');
       }
       const result = addCompletedSets(next, { ...next.players.find((player) => player.id === currentUserId)! }, mine);
       next.hands[currentUserId] = result.remaining;
+      const refilled = result.points > 0 && refillEmptyHand(next, currentUserId, name);
       const playerIndex = next.players.findIndex((player) => player.id === currentUserId);
       next.players[playerIndex].score += result.points;
-      finishOrAdvance(next, playerIndex, false);
+      finishOrAdvance(next, playerIndex, Boolean(drawnCard && drawnCard.startsWith(`${rank}-`)) || refilled);
     }
     setRank(null); setOpponent(null);
     try { await persist(next); } catch { setError('A jogada não foi sincronizada. Tente novamente.'); }
@@ -203,8 +229,8 @@ export default function App() {
   if (!supabaseConfigured) return <Shell><Panel><h1 className="text-center text-4xl font-black text-green-800">PEIXINHO</h1><p className="mt-4 text-center text-gray-600">Configure `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` no ficheiro `.env` para jogar online.</p></Panel></Shell>;
   if (!user) return <Shell><Panel><div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-green-700" /><p className="mt-4 text-center">Conectando...</p></Panel></Shell>;
   if (view === 'login') return <Shell><Panel><div className="mb-6 text-center"><div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-green-700 text-3xl shadow-lg shadow-green-900/30">🐟</div><h1 className="text-4xl font-black tracking-tight text-green-900">PEIXINHO</h1><p className="mt-2 text-sm text-gray-500">O clássico jogo de cartas online</p></div><label className="text-sm font-semibold text-gray-700">Seu nome<input autoFocus value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && name.trim() && setView('menu')} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-green-500 focus:ring-4 focus:ring-green-100" maxLength={24} /></label><button onClick={() => name.trim() ? setView('menu') : setError('Digite um nome!')} className="mt-5 w-full rounded-xl bg-green-600 py-3 font-bold text-white shadow-lg shadow-green-600/25 transition hover:bg-green-700">Continuar</button><p role="alert" className="mt-3 text-center text-sm text-red-500">{error}</p></Panel></Shell>;
-  if (view === 'menu') return <Shell><section className="w-full max-w-3xl rounded-3xl border border-white/60 bg-white/95 p-6 text-gray-900 shadow-2xl shadow-black/30 sm:p-8"><div className="mb-8 flex items-start justify-between"><div><p className="text-sm font-semibold uppercase tracking-wider text-green-600">Peixinho Online</p><h2 className="mt-1 text-2xl font-black">Olá, {name}!</h2></div><button onClick={() => setView('login')} aria-label="Alterar nome"><LogOut size={20} /></button></div><div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"><div><button onClick={create} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-4 font-bold text-white"><UserPlus size={20} />Criar Nova Sala</button><div className="my-6 flex items-center gap-3 text-xs font-bold tracking-widest text-gray-400"><span className="h-px flex-1 bg-gray-200" />OU<span className="h-px flex-1 bg-gray-200" /></div><div className="flex gap-2"><input id="join" className="w-full rounded-xl border border-gray-300 px-4 py-3 text-center font-mono uppercase tracking-[0.3em]" maxLength={4} placeholder="CÓDIGO" aria-label="Código da sala" onKeyDown={(event) => event.key === 'Enter' && join(event.currentTarget.value)} /><button onClick={() => join((document.getElementById('join') as HTMLInputElement).value)} aria-label="Entrar na sala" className="rounded-xl bg-green-600 px-6 text-white"><ArrowRight size={20} /></button></div></div><div className="space-y-4 rounded-2xl bg-green-50 p-4"><div><h3 className="flex items-center gap-2 font-bold text-green-900"><Sparkles size={16} />Patch notes v1.2</h3>{PATCH_NOTES.map((note) => <p key={note} className="mt-2 rounded-xl bg-white p-2 text-sm text-gray-700">{note}</p>)}</div><div className="border-t border-green-200 pt-4"><label className="text-sm font-semibold text-green-900">Sugestão<textarea value={suggestion} onChange={(event) => setSuggestion(event.target.value)} className="mt-2 h-20 w-full rounded-xl border border-green-200 p-3 text-sm outline-none focus:ring-4 focus:ring-green-100" placeholder="Como podemos melhorar?" /></label><button onClick={saveSuggestion} disabled={!suggestion.trim()} className="mt-2 w-full rounded-xl bg-green-600 py-2 font-bold text-white disabled:bg-gray-300">Enviar sugestão</button></div></div></div><p role="alert" className="mt-3 text-center text-sm text-red-500">{error}</p></section></Shell>;
-  if (view === 'lobby' && room) return <Shell><Panel><div className="mb-6 flex items-start justify-between gap-4"><div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.18em] text-green-600 sm:text-sm">Sala pronta</p><h2 className="mt-1 text-3xl font-black tracking-tight text-gray-900">Lobby</h2><p className="mt-2 text-sm text-gray-500">Código: <b className="rounded-lg bg-gray-100 px-2 py-1 font-mono tracking-widest text-gray-800">{room.roomId}</b></p></div><button onClick={leave} className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-red-500 transition hover:bg-red-50">Sair</button></div><div className="mb-6 rounded-2xl border border-gray-200 bg-gray-50 p-3 sm:p-4"><h3 className="mb-3 flex items-center gap-2 font-semibold text-gray-800"><Users size={18} className="text-green-600" />Jogadores <span className="ml-auto rounded-full bg-green-100 px-2 py-1 text-xs font-bold text-green-700">{room.players.length}/8</span></h3><div className="space-y-2">{room.players.map((player) => <div key={player.id} className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-3 shadow-sm"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-600">{player.name[0]}</span><span className="min-w-0 break-words text-sm font-semibold leading-snug text-gray-800 sm:text-base">{player.name}</span>{player.id === room.hostId && <span className="ml-auto shrink-0 rounded-full bg-yellow-100 px-2 py-1 text-xs font-bold text-yellow-700">HOST</span>}</div>)}</div></div>{room.hostId === currentUserId ? <button disabled={room.players.length < 2} onClick={start} className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 py-4 font-bold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-gray-400"><Play size={20} />{room.players.length < 2 ? 'Aguardando jogadores...' : 'Iniciar Jogo'}</button> : <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-center font-medium text-blue-800">Aguardando o host iniciar a partida...</div>}</Panel></Shell>;
+  if (view === 'menu') return <Shell><section className="w-full max-w-3xl rounded-3xl border border-white/60 bg-white/95 p-6 text-gray-900 shadow-2xl shadow-black/30 sm:p-8"><div className="mb-8 flex items-start justify-between"><div><p className="text-sm font-semibold uppercase tracking-wider text-green-600">Peixinho Online</p><h2 className="mt-1 text-2xl font-black">Olá, {name}!</h2></div><button onClick={() => setView('login')} aria-label="Alterar nome"><LogOut size={20} /></button></div><div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"><div><button onClick={create} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-4 font-bold text-white"><UserPlus size={20} />Criar Nova Sala</button><div className="my-6 flex items-center gap-3 text-xs font-bold tracking-widest text-gray-400"><span className="h-px flex-1 bg-gray-200" />OU<span className="h-px flex-1 bg-gray-200" /></div><div className="flex gap-2"><input id="join" className="w-full rounded-xl border border-gray-300 px-4 py-3 text-center font-mono uppercase tracking-[0.3em]" maxLength={4} placeholder="CÓDIGO" aria-label="Código da sala" onKeyDown={(event) => event.key === 'Enter' && join(event.currentTarget.value)} /><button onClick={() => join((document.getElementById('join') as HTMLInputElement).value)} aria-label="Entrar na sala" className="rounded-xl bg-green-600 px-6 text-white"><ArrowRight size={20} /></button></div></div><div className="space-y-4 rounded-2xl bg-green-50 p-4"><div>  <h3 className="flex items-center gap-2 font-bold text-green-900"><Sparkles size={16} />Patch notes v1.4</h3>{PATCH_NOTES.map((note) => <p key={note} className="mt-2 rounded-xl bg-white p-2 text-sm text-gray-700">{note}</p>)}</div><div className="border-t border-green-200 pt-4"><label className="text-sm font-semibold text-green-900">Sugestão<textarea value={suggestion} onChange={(event) => setSuggestion(event.target.value)} className="mt-2 h-20 w-full rounded-xl border border-green-200 p-3 text-sm outline-none focus:ring-4 focus:ring-green-100" placeholder="Como podemos melhorar?" /></label><button onClick={saveSuggestion} disabled={!suggestion.trim()} className="mt-2 w-full rounded-xl bg-green-600 py-2 font-bold text-white disabled:bg-gray-300">Enviar sugestão</button></div></div></div><p role="alert" className="mt-3 text-center text-sm text-red-500">{error}</p></section></Shell>;
+  if (view === 'lobby' && room) return <Shell><Panel><div className="mb-6 flex items-start justify-between gap-4"><div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.18em] text-green-600 sm:text-sm">Sala pronta</p><h2 className="mt-1 text-3xl font-black tracking-tight text-gray-900">Lobby</h2><p className="mt-2 text-sm text-gray-500">Código: <b className="rounded-lg bg-gray-100 px-2 py-1 font-mono tracking-widest text-gray-800">{room.roomId}</b></p></div><button onClick={leave} className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-red-500 transition hover:bg-red-50">Sair</button></div><div className="mb-6 rounded-2xl border border-gray-200 bg-gray-50 p-3 sm:p-4"><h3 className="mb-3 flex items-center gap-2 font-semibold text-gray-800"><Users size={18} className="text-green-600" />Jogadores   <span className="ml-auto rounded-full bg-green-100 px-2 py-1 text-xs font-bold text-green-700">{room.players.length}/10</span></h3><div className="space-y-2">{room.players.map((player) => <div key={player.id} className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-3 shadow-sm"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-600">{player.name[0]}</span><span className="min-w-0 break-words text-sm font-semibold leading-snug text-gray-800 sm:text-base">{player.name}</span>{player.id === room.hostId && <span className="ml-auto shrink-0 rounded-full bg-yellow-100 px-2 py-1 text-xs font-bold text-yellow-700">HOST</span>}</div>)}</div></div>{room.hostId === currentUserId ? <button disabled={room.players.length < 2} onClick={start} className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 py-4 font-bold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-gray-400"><Play size={20} />{room.players.length < 2 ? 'Aguardando jogadores...' : 'Iniciar Jogo'}</button> : <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-center font-medium text-blue-800">Aguardando o host iniciar a partida...</div>}</Panel></Shell>;
   if (!room) return null;
 
   const mine = room.hands[currentUserId] ?? [];

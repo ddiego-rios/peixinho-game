@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0 - 2026-11-04
+
+- Applied the official deal: 7 cards for 2–3 players and 5 cards for 4 or more players.
+- Restricted requests to ranks in the current player's hand.
+- Draws now take the top card; matching the requested rank keeps the turn, otherwise it advances.
+- Increased the room limit to 10 players and handled empty hands by refilling from the deck or skipping the player.
+
 ## 1.3.1 - 2026-11-04
 
 - Removed the legacy fishing-selection flow completely from the client.
