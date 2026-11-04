@@ -168,7 +168,8 @@ export default function App() {
       finishOrAdvance(next, playerIndex, true);
     } else {
       next.logs.push(`${name} pediu ${rank} a ${target.name}; não encontrou.`);
-      const drawnCard = next.deck.pop();
+      const drawnIndex = next.deck.length > 0 ? Math.floor(Math.random() * next.deck.length) : -1;
+      const drawnCard = drawnIndex >= 0 ? next.deck.splice(drawnIndex, 1)[0] : undefined;
       if (drawnCard) {
         mine.push(drawnCard);
         next.logs.push(`${name} comprou uma carta do baralho.`);

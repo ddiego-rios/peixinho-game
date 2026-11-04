@@ -16,9 +16,9 @@ Cada aba usa uma identidade de jogador independente em `sessionStorage`. Assim, 
 
 Os nomes dos jogadores aceitam até 24 caracteres e quebram de forma responsiva no lobby e nos cartões laterais da partida.
 
-Execute o conteúdo de [`supabase/schema.sql`](supabase/schema.sql) no SQL Editor do Supabase. O script cria `rooms`, `room_messages` e `suggestions`, as RPCs de atualização concorrente e compatibilidade, habilita RLS e adiciona as tabelas de sala/chat à publicação `supabase_realtime`.
+Execute o conteúdo de [`supabase/schema.sql`](supabase/schema.sql) no SQL Editor do Supabase. O script cria `rooms`, `room_messages` e `suggestions`, a RPC de atualização concorrente, habilita RLS e adiciona as tabelas de sala/chat à publicação `supabase_realtime`.
 
-Se o projeto já tinha a versão anterior do schema, execute o ficheiro novamente por inteiro: ele atualiza `join_room`, cria `update_room_state`/`expire_room_turn` e confirma a publicação realtime. No Supabase Dashboard, confirme em **Database > Publications > supabase_realtime** que `rooms` e `room_messages` estão selecionadas.
+Se o projeto já tinha uma versão anterior do schema, execute o ficheiro novamente por inteiro: além de atualizar `join_room`, ele remove as RPCs legadas de timeout e seleção manual (`expire_room_turn` e `choose_room_card`). No Supabase Dashboard, confirme em **Database > Publications > supabase_realtime** que `rooms` e `room_messages` estão selecionadas.
 
 Regras desta versão: cada sala suporta até 8 jogadores e não há limite de tempo por turno; pedir uma carta existente mantém a vez, enquanto uma falha compra automaticamente uma carta do topo do baralho e passa a vez. “Peixinho!” é reservado para quadras concluídas. Ao sair de uma sala ou fechar/recarregar a página dentro de uma sala, o browser pede confirmação. Sugestões são gravadas em `suggestions` e o chat em `room_messages`.
 
