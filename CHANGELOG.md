@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0 - 2026-11-05
+
+- Hid the rank of freshly drawn cards from other players and removed that rank from shared draw logs.
+- Added a local highlight for the player's newly drawn card.
+- Added realtime lobby chat, help rules, synchronized winners and rematch voting.
+- Added transactional room leave cleanup and a retry on page unload.
+
 ## 1.5.1 - 2026-11-05
 
 - Added a lightweight Peixinho SVG favicon and browser metadata.

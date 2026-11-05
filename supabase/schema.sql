@@ -62,8 +62,38 @@ begin
 end;
 $$;
 
+create or replace function public.leave_room(room_id text, player_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_data jsonb;
+  remaining_players jsonb;
+  next_host text;
+  updated_data jsonb;
+begin
+  select data into current_data from public.rooms where id = room_id for update;
+  if current_data is null then return null; end if;
+  remaining_players := coalesce((select jsonb_agg(player) from jsonb_array_elements(current_data->'players') player where player->>'id' <> player_id), '[]'::jsonb);
+  if jsonb_array_length(remaining_players) = 0 then
+    delete from public.rooms where id = room_id;
+    return null;
+  end if;
+  next_host := remaining_players->0->>'id';
+  updated_data := jsonb_set(current_data, '{players}', remaining_players);
+  updated_data := jsonb_set(updated_data, '{hostId}', to_jsonb(case when current_data->>'hostId' = player_id then next_host else current_data->>'hostId' end));
+  updated_data := jsonb_set(updated_data, '{rematchVotes}', '[]'::jsonb);
+  updated_data := jsonb_set(updated_data, '{logs}', (updated_data->'logs') || jsonb_build_array('Um jogador saiu da sala.'));
+  update public.rooms set data = updated_data, updated_at = now() where id = room_id;
+  return updated_data;
+end;
+$$;
+
 grant execute on function public.join_room(text, text, text) to anon, authenticated;
 grant execute on function public.update_room_state(text, timestamptz, jsonb) to anon, authenticated;
+grant execute on function public.leave_room(text, text) to anon, authenticated;
 
 drop function if exists public.expire_room_turn(text, timestamptz, bigint);
 drop function if exists public.choose_room_card(text, timestamptz, text, text);
