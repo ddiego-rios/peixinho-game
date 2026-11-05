@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.1 - 2026-11-05
+
+- Added a lightweight Peixinho SVG favicon and browser metadata.
+- Added a compact Peixinho mark to the game header.
+
 ## 1.5.0 - 2026-11-05
 
 - Moved players to a compact responsive side panel and kept the header focused on room status and next turn.
