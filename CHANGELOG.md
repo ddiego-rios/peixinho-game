@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0 - 2026-11-05
+
+- Moved players to a compact responsive side panel and kept the header focused on room status and next turn.
+- Replaced the large center set display with a compact per-player peixinho scoreboard.
+- Added a collapsible, compact quadra grid with accessible card details.
+- Limited the history view to recent entries with an internal scroll area and soft fade.
+
 ## 1.4.0 - 2026-11-04
 
 - Applied the official deal: 7 cards for 2–3 players and 5 cards for 4 or more players.
