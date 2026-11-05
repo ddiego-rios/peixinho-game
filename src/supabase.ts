@@ -3,6 +3,7 @@ import { createClient, type RealtimeChannel } from '@supabase/supabase-js';
 export type AppUser = { uid: string };
 export type RoomSnapshot = { data: Record<string, unknown> | null; updatedAt: string | null };
 export type ChatMessage = { id: string; room_id: string; sender_id: string; sender_name: string; body: string; created_at: string };
+export type PrivateRoomResult = { data: Record<string, unknown>; hand: string[]; drawnCard?: string | null; updatedAt: string };
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -44,6 +45,29 @@ export const updateRoom = async (id: string, expectedUpdatedAt: string | null, d
   if (error) throw error;
   return result as { data: Record<string, unknown>; updatedAt: string };
 };
+
+const callPrivateRoomRpc = async (name: string, args: Record<string, unknown>) => {
+  if (!supabase) throw new Error('Supabase não está configurado.');
+  const { data, error } = await supabase.rpc(name, args);
+  if (error) throw error;
+  return data as PrivateRoomResult;
+};
+
+export const readMyHand = async (roomId: string, playerId: string) => {
+  if (!supabase) throw new Error('Supabase não está configurado.');
+  const { data, error } = await supabase.rpc('read_my_hand', { room_id: roomId, player_id: playerId });
+  if (error) throw error;
+  return (data ?? []) as string[];
+};
+
+export const startRoomGame = (roomId: string, playerId: string) =>
+  callPrivateRoomRpc('start_room_game', { room_id: roomId, player_id: playerId });
+
+export const playRoomTurn = (roomId: string, playerId: string, targetId: string, requestedRank: string) =>
+  callPrivateRoomRpc('play_room_turn', { room_id: roomId, player_id: playerId, target_id: targetId, requested_rank: requestedRank });
+
+export const rematchRoom = (roomId: string, playerId: string) =>
+  callPrivateRoomRpc('rematch_room', { room_id: roomId, player_id: playerId });
 
 export const joinRoom = async (id: string, playerId: string, playerName: string) => {
   if (!supabase) throw new Error('Supabase não está configurado.');

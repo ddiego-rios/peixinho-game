@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0 - 2026-11-05
+
+- Moved hands and deck cards out of the public room snapshot into private Supabase tables with RLS.
+- Added transactional server-side start, play, draw, quadra, finish and rematch operations that return only the current player's hand.
+- Removed direct client room updates for game state and preserved public counts/logs without exposing drawn-card ranks.
+
 ## 1.6.1 - 2026-11-05
 
 - Added atomic player-name editing with validation and no duplicate player entries.
