@@ -33,11 +33,34 @@ declare
 begin
   select data into current_data from public.rooms where id = room_id for update;
   if current_data is null then raise exception 'Sala não encontrada'; end if;
-  if current_data->>'status' <> 'lobby' then raise exception 'O jogo já começou'; end if;
   if exists (select 1 from jsonb_array_elements(current_data->'players') player where player->>'id' = player_id) then return current_data; end if;
+  if current_data->>'status' <> 'lobby' then raise exception 'O jogo já começou'; end if;
   if jsonb_array_length(current_data->'players') >= 10 then raise exception 'A sala está cheia'; end if;
   updated_data := jsonb_set(current_data, '{players}', (current_data->'players') || jsonb_build_array(jsonb_build_object('id', player_id, 'name', player_name, 'score', 0)));
   updated_data := jsonb_set(updated_data, '{logs}', (updated_data->'logs') || jsonb_build_array(player_name || ' entrou na sala.'));
+  update public.rooms set data = updated_data, updated_at = now() where id = room_id;
+  return updated_data;
+end;
+$$;
+
+create or replace function public.update_player_name(room_id text, player_id text, player_name text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_data jsonb;
+  updated_players jsonb;
+  updated_data jsonb;
+begin
+  if player_name !~ '^[[:alnum:] _-]{2,24}$' then raise exception 'Nome inválido'; end if;
+  select data into current_data from public.rooms where id = room_id for update;
+  if current_data is null then raise exception 'Sala não encontrada'; end if;
+  if not exists (select 1 from jsonb_array_elements(current_data->'players') player where player->>'id' = player_id) then raise exception 'Jogador não encontrado'; end if;
+  updated_players := coalesce((select jsonb_agg(jsonb_set(player, '{name}', to_jsonb(player_name))) from jsonb_array_elements(current_data->'players') player), '[]'::jsonb);
+  updated_data := jsonb_set(current_data, '{players}', updated_players);
+  updated_data := jsonb_set(updated_data, '{logs}', (updated_data->'logs') || jsonb_build_array('Um jogador atualizou o nome.'));
   update public.rooms set data = updated_data, updated_at = now() where id = room_id;
   return updated_data;
 end;
@@ -92,6 +115,7 @@ end;
 $$;
 
 grant execute on function public.join_room(text, text, text) to anon, authenticated;
+grant execute on function public.update_player_name(text, text, text) to anon, authenticated;
 grant execute on function public.update_room_state(text, timestamptz, jsonb) to anon, authenticated;
 grant execute on function public.leave_room(text, text) to anon, authenticated;
 

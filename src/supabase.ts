@@ -56,6 +56,17 @@ export const joinRoom = async (id: string, playerId: string, playerName: string)
   return data as Record<string, unknown>;
 };
 
+export const updatePlayerName = async (id: string, playerId: string, playerName: string) => {
+  if (!supabase) throw new Error('Supabase não está configurado.');
+  const { data, error } = await supabase.rpc('update_player_name', {
+    room_id: id,
+    player_id: playerId,
+    player_name: playerName,
+  });
+  if (error) throw error;
+  return data as Record<string, unknown>;
+};
+
 export const leaveRoom = async (id: string, playerId: string) => {
   if (!supabase) throw new Error('Supabase não está configurado.');
   const { data, error } = await supabase.rpc('leave_room', { room_id: id, player_id: playerId });

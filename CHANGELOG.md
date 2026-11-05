@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.1 - 2026-11-05
+
+- Added atomic player-name editing with validation and no duplicate player entries.
+- Preserved the session identity across accidental reloads so the same player can rejoin a lobby or active room.
+- Changed unload handling so only an intentional leave removes the player from the room.
+
 ## 1.6.0 - 2026-11-05
 
 - Hid the rank of freshly drawn cards from other players and removed that rank from shared draw logs.
