@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.2 - 2026-11-06
+
+- Removed the client-side room-capacity precheck that could reject a stale lobby snapshot.
+- Clarified that starting requires only an authorized host and at least two players; ten players is only the maximum admission limit.
+- Surface a clear message when another client has already started the match.
+
 ## 1.7.1 - 2026-11-06
 
 - Fixed the lobby start action to refresh the latest room state before calling the server RPC.

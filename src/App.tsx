@@ -120,7 +120,6 @@ export default function App() {
       const snapshot = await readRoom(id);
       const existing = snapshot.data as unknown as Room | null;
       if (!existing) return setError('Sala não encontrada.');
-      if (existing.players.length >= 10 && !existing.players.some((player) => player.id === user!.uid)) return setError('A sala está cheia.');
       await joinRoom(id, user!.uid, name.trim());
       setError(''); setRoomCodeState(id);
     } catch (joinError) {
@@ -152,7 +151,7 @@ export default function App() {
       if (!latestRoom) throw new Error('A sala nao existe mais.');
       setRoom(latestRoom);
       setRoomUpdatedAt(latest.updatedAt);
-      if (latestRoom.status !== 'lobby') return;
+      if (latestRoom.status !== 'lobby') throw new Error('A partida já foi iniciada.');
       if (latestRoom.hostId !== user.uid) throw new Error('Apenas o host pode iniciar a partida.');
       if (latestRoom.players.length < 2) throw new Error('E necessario aguardar pelo menos outro jogador.');
       const result = await startRoomGame(latestRoom.roomId, user.uid);

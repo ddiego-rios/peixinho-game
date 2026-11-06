@@ -210,6 +210,8 @@ begin
   if current_data->>'hostId' <> player_id then raise exception 'Apenas o host pode iniciar'; end if;
   if current_data->>'status' <> 'lobby' then raise exception 'A partida já começou'; end if;
   player_count := jsonb_array_length(current_data->'players');
+  -- A partida pode começar com qualquer sala válida a partir de dois jogadores.
+  -- O limite máximo de dez jogadores pertence apenas ao ingresso na sala.
   if player_count < 2 then raise exception 'São necessários dois jogadores'; end if;
   if not exists (select 1 from jsonb_array_elements(current_data->'players') player where player->>'id' = player_id) then
     raise exception 'O host não está presente na sala';
