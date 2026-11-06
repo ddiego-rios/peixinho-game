@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.4 - 2026-11-06
+
+- Fixed the transactional start deal query so 2–10 player rooms, including 8 players, receive deterministic private hands and a valid remaining deck.
+- Exposed Supabase operation, code, details and hint in the lobby error instead of collapsing RPC failures into a generic message.
+
 ## 1.7.3 - 2026-11-06
 
 - Fixed game start for 2–10 players, including eight-player rooms.

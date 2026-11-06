@@ -4,6 +4,15 @@ export type AppUser = { uid: string };
 export type RoomSnapshot = { data: Record<string, unknown> | null; updatedAt: string | null };
 export type ChatMessage = { id: string; room_id: string; sender_id: string; sender_name: string; body: string; created_at: string };
 export type PrivateRoomResult = { data: Record<string, unknown>; hand: string[]; drawnCard?: string | null; updatedAt: string };
+type SupabaseError = { message?: string; code?: string; details?: string; hint?: string };
+
+const formatSupabaseError = (error: SupabaseError, operation: string) => {
+  const parts = [error.message, error.details, error.hint].filter(Boolean);
+  const suffix = error.code ? ` [${error.code}]` : '';
+  const message = `${operation}: ${parts.join(' — ') || 'erro desconhecido'}${suffix}`;
+  console.error(`[Peixinho] ${message}`, error);
+  return new Error(message);
+};
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -24,7 +33,7 @@ type RoomRow = { id: string; data: Record<string, unknown>; updated_at: string }
 export const readRoom = async (id: string): Promise<RoomSnapshot> => {
   if (!supabase) throw new Error('Supabase não está configurado.');
   const { data, error } = await supabase.from('rooms').select('id,data,updated_at').eq('id', id).single();
-  if (error && error.code !== 'PGRST116') throw error;
+  if (error && error.code !== 'PGRST116') throw formatSupabaseError(error, 'Falha ao ler a sala');
   const row = data as RoomRow | null;
   return { data: row?.data ?? null, updatedAt: row?.updated_at ?? null };
 };
@@ -32,7 +41,7 @@ export const readRoom = async (id: string): Promise<RoomSnapshot> => {
 export const createRoom = async (id: string, data: object) => {
   if (!supabase) throw new Error('Supabase não está configurado.');
   const { error } = await supabase.from('rooms').insert({ id, data });
-  if (error) throw error;
+  if (error) throw formatSupabaseError(error, 'Falha ao atualizar a sala');
 };
 
 export const updateRoom = async (id: string, expectedUpdatedAt: string | null, data: object) => {
@@ -42,21 +51,21 @@ export const updateRoom = async (id: string, expectedUpdatedAt: string | null, d
     expected_updated_at: expectedUpdatedAt,
     next_data: data,
   });
-  if (error) throw error;
+  if (error) throw formatSupabaseError(error, 'Falha ao atualizar o estado da sala');
   return result as { data: Record<string, unknown>; updatedAt: string };
 };
 
 const callPrivateRoomRpc = async (name: string, args: Record<string, unknown>) => {
   if (!supabase) throw new Error('Supabase não está configurado.');
   const { data, error } = await supabase.rpc(name, args);
-  if (error) throw error;
+  if (error) throw formatSupabaseError(error, `Falha ao executar ${name}`);
   return data as PrivateRoomResult;
 };
 
 export const readMyHand = async (roomId: string, playerId: string) => {
   if (!supabase) throw new Error('Supabase não está configurado.');
   const { data, error } = await supabase.rpc('read_my_hand', { room_id: roomId, player_id: playerId });
-  if (error) throw error;
+  if (error) throw formatSupabaseError(error, 'Falha ao ler a mão');
   return (data ?? []) as string[];
 };
 

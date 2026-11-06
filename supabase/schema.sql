@@ -218,23 +218,23 @@ begin
     raise exception 'O host não está presente na sala';
   end if;
   cards_per_player := case when player_count <= 3 then 7 else 5 end;
-  select jsonb_agg(card order by random()) into shuffled
-  from (select rank || '-' || suit as card
+  select coalesce(jsonb_agg(deck_card order by random()), '[]'::jsonb) into shuffled
+  from (select rank || '-' || suit as deck_card
         from unnest(array['2','3','4','5','6','7','8','9','10','J','Q','K','A']) rank
         cross join unnest(array['H','D','C','S']) suit) cards;
   delete from public.room_hands where room_id = start_room_game.room_id;
   delete from public.room_decks where room_id = start_room_game.room_id;
   for player in select players.value from jsonb_array_elements(current_data->'players') as players(value) loop
-    select coalesce(jsonb_agg(value), '[]'::jsonb) into hand
-    from jsonb_array_elements(shuffled) with ordinality as dealt(value, card_index)
-    where dealt.card_index > player_index * cards_per_player
-      and dealt.card_index <= (player_index + 1) * cards_per_player;
+    select coalesce(jsonb_agg(dealt.card order by dealt.position), '[]'::jsonb) into hand
+    from jsonb_array_elements(shuffled) with ordinality as dealt(card, position)
+    where dealt.position > player_index * cards_per_player
+      and dealt.position <= (player_index + 1) * cards_per_player;
     insert into public.room_hands(room_id, player_id, cards) values (room_id, player->>'id', hand);
     player_index := player_index + 1;
   end loop;
-  select coalesce(jsonb_agg(value), '[]'::jsonb) into remaining
-  from jsonb_array_elements(shuffled) with ordinality as undealt(value, card_index)
-  where undealt.card_index > player_count * cards_per_player;
+  select coalesce(jsonb_agg(undealt.card order by undealt.position), '[]'::jsonb) into remaining
+  from jsonb_array_elements(shuffled) with ordinality as undealt(card, position)
+  where undealt.position > player_count * cards_per_player;
   insert into public.room_decks(room_id, cards) values (room_id, remaining);
   first_turn := floor(random() * player_count);
   first_player := current_data->'players'->first_turn->>'name';
