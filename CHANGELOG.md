@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.3 - 2026-11-06
+
+- Fixed game start for 2–10 players, including eight-player rooms.
+- Made the SQL deal ranges explicit for every player and preserved the 5-card distribution for four or more players.
+- Added visible lobby error feedback when start validation or the start RPC fails.
+
 ## 1.7.2 - 2026-11-06
 
 - Removed the client-side room-capacity precheck that could reject a stale lobby snapshot.
