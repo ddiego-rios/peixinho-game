@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.1 - 2026-11-06
+
+- Fixed the lobby start action to refresh the latest room state before calling the server RPC.
+- Added visible start-in-progress state and surfaced actionable host/player validation errors instead of swallowing them.
+- Added server validation that the requesting host is still present before dealing cards.
+
 ## 1.7.0 - 2026-11-05
 
 - Moved hands and deck cards out of the public room snapshot into private Supabase tables with RLS.

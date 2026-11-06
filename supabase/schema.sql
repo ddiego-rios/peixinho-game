@@ -211,6 +211,9 @@ begin
   if current_data->>'status' <> 'lobby' then raise exception 'A partida já começou'; end if;
   player_count := jsonb_array_length(current_data->'players');
   if player_count < 2 then raise exception 'São necessários dois jogadores'; end if;
+  if not exists (select 1 from jsonb_array_elements(current_data->'players') player where player->>'id' = player_id) then
+    raise exception 'O host não está presente na sala';
+  end if;
   cards_per_player := case when player_count <= 3 then 7 else 5 end;
   select jsonb_agg(card order by random()) into shuffled
   from (select rank || '-' || suit as card
