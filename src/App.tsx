@@ -2,20 +2,21 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, ChevronDown, ChevronUp, Info, LogOut, MessageCircle, Play, Send, Sparkles, Trophy, UserPlus, Users, X } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { AppUser, ChatMessage, RoomSnapshot } from './supabase';
-import { createRoom, joinRoom, leaveRoom, playRoomTurn, readMessages, readMyHand, readRoom, rematchRoom, sendMessage, signIn, startRoomGame, submitSuggestion, supabaseConfigured, updatePlayerName, watchMessages, watchRoom } from './supabase';
+import { createRoom, expireRoomTurn, joinRoom, leaveRoom, playRoomTurn, readMessages, readMyHand, readRoom, rematchRoom, sendMessage, signIn, startRoomGame, submitSuggestion, supabaseConfigured, updatePlayerName, watchMessages, watchRoom } from './supabase';
 
 type Player = { id: string; name: string; score: number };
 type CompletedSet = { rank: string; cards: string[]; playerName: string; createdAt: number };
 type Room = {
   roomId: string; hostId: string; status: 'lobby' | 'playing' | 'finished'; players: Player[];
   deckCount: number; handCounts: Record<string, number>; turnIndex: number; logs: string[];
-  createdAt: number;
+  createdAt: number; turnStartedAt?: string;
   completedSets?: Record<string, CompletedSet[]>;
   rematchVotes?: string[];
 };
 
 const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 const PATCH_NOTES = [
+  'Cada turno dura 60 segundos; quando o tempo acaba, a vez passa automaticamente.',
   'Mesa reorganizada com jogadores numa barra lateral, placar compacto e histórico com scroll interno.',
   'Quadras e peixinhos podem ser recolhidos e consultados numa grade compacta.',
   'Distribuição oficial: 7 cartas para 2–3 jogadores e 5 cartas para 4 ou mais jogadores.',
@@ -65,10 +66,12 @@ export default function App() {
   const [recentCard, setRecentCard] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
   const [starting, setStarting] = useState(false);
+  const [turnSecondsLeft, setTurnSecondsLeft] = useState(60);
   const currentUserId = user?.uid ?? '';
   const logEnd = useRef<HTMLDivElement>(null);
   const latestRoomUpdate = useRef<string | null>(null);
   const latestHandRequest = useRef(0);
+  const serverClockOffset = useRef(0);
 
   useEffect(() => { setUser(signIn()); }, []);
   useEffect(() => {
@@ -78,7 +81,10 @@ export default function App() {
     const applyRoom = (snapshot: RoomSnapshot) => {
       if (!active) return;
       if (snapshot.updatedAt && latestRoomUpdate.current && snapshot.updatedAt < latestRoomUpdate.current) return;
-      if (snapshot.updatedAt) latestRoomUpdate.current = snapshot.updatedAt;
+      if (snapshot.updatedAt) {
+        latestRoomUpdate.current = snapshot.updatedAt;
+        serverClockOffset.current = Date.parse(snapshot.updatedAt) - Date.now();
+      }
       setRoomUpdatedAt(snapshot.updatedAt);
       const next = snapshot.data as unknown as Room | null;
       setRoom(next);
@@ -101,6 +107,40 @@ export default function App() {
     const stopMessages = watchMessages(roomCodeState, (message) => setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message].slice(-100)));
     return () => { active = false; stopRoom(); stopMessages(); };
   }, [user, roomCodeState]);
+  useEffect(() => {
+    if (!room || room.status !== 'playing' || !room.turnStartedAt) {
+      setTurnSecondsLeft(60);
+      return;
+    }
+    let inFlight = false;
+    let lastAttemptAt = 0;
+    const tick = () => {
+      const turnStartedAt = Date.parse(room.turnStartedAt!);
+      if (Number.isNaN(turnStartedAt)) return;
+      const now = Date.now();
+      const remaining = Math.max(0, Math.ceil((turnStartedAt + 60_000 - (now + serverClockOffset.current)) / 1000));
+      setTurnSecondsLeft(remaining);
+      if (remaining !== 0 || inFlight || now - lastAttemptAt < 2000) return;
+      inFlight = true;
+      lastAttemptAt = now;
+      void expireRoomTurn(room.roomId)
+        .then((result) => {
+          if (!result.expired) return;
+          const nextRoom = result.data as unknown as Room;
+          setRoom(nextRoom);
+          setRoomUpdatedAt(result.updatedAt);
+          latestRoomUpdate.current = result.updatedAt;
+          serverClockOffset.current = Date.parse(result.updatedAt) - Date.now();
+        })
+        .catch((expireError) => {
+          setError(expireError instanceof Error ? expireError.message.replace(/^Error:\s*/i, '') : 'Não foi possível avançar o turno expirado.');
+        })
+        .finally(() => { inFlight = false; });
+    };
+    tick();
+    const interval = window.setInterval(tick, 1000);
+    return () => window.clearInterval(interval);
+  }, [room?.roomId, room?.status, room?.turnStartedAt]);
   useEffect(() => { logEnd.current?.scrollIntoView({ behavior: 'smooth' }); }, [room?.logs, messages]);
   useEffect(() => {
     if (!roomCodeState || !room) return;
@@ -169,6 +209,8 @@ export default function App() {
       latestHandRequest.current += 1;
       setHand(result.hand ?? []);
       setRoomUpdatedAt(result.updatedAt);
+      latestRoomUpdate.current = result.updatedAt;
+      serverClockOffset.current = Date.parse(result.updatedAt) - Date.now();
       setError('');
     } catch (startError) {
       const message = startError instanceof Error ? startError.message : 'Nao foi possivel iniciar o jogo.';
@@ -206,6 +248,8 @@ export default function App() {
       latestHandRequest.current += 1;
       setHand(result.hand);
       setRoomUpdatedAt(result.updatedAt);
+      latestRoomUpdate.current = result.updatedAt;
+      serverClockOffset.current = Date.parse(result.updatedAt) - Date.now();
       if (result.drawnCard) { setRecentCard(result.drawnCard); window.setTimeout(() => setRecentCard(null), 4000); }
       setRank(null); setOpponent(null);
     } catch (playError) {
@@ -245,6 +289,7 @@ export default function App() {
   const nextPlayer = room.players[room.turnIndex];
   const nextPlayerCards = nextPlayer ? (room.handCounts[nextPlayer.id] ?? 0) : 0;
   const nextTurnLabel = room.status === 'finished' ? 'Partida encerrada' : nextPlayerCards === 0 ? `${nextPlayer?.name ?? 'Jogador'} sem cartas — a vez será saltada` : `Próxima vez: ${nextPlayer?.name ?? '—'}`;
+  const turnTimerLabel = `${String(Math.floor(turnSecondsLeft / 60)).padStart(2, '0')}:${String(turnSecondsLeft % 60).padStart(2, '0')}`;
   const available = [...new Set(mine.map((card) => card.split('-')[0]))];
   const sorted = [...mine].sort((a, b) => ranks.indexOf(a.split('-')[0]) - ranks.indexOf(b.split('-')[0]));
   const activeMessages = panel === 'chat' ? messages : room.logs.map((log, index) => ({ id: `${index}-${log}`, body: log, sender_name: '', created_at: '' } as ChatMessage));
@@ -256,13 +301,13 @@ export default function App() {
 
   return <div className="game-shell flex min-h-screen flex-col text-white">
     {error && <div role="alert" aria-live="assertive" className="mx-auto mt-3 w-[calc(100%-1.5rem)] max-w-6xl rounded-xl border border-red-300/40 bg-red-950/70 px-4 py-3 text-sm font-semibold text-red-100 shadow-lg">{error}<button type="button" onClick={() => setError('')} className="ml-3 underline decoration-red-200/70 underline-offset-2">Fechar</button></div>}
-    <header className="game-header sticky top-0 z-10 p-3 sm:p-4"><div className="mx-auto flex max-w-6xl items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><img src="/peixinho.svg" alt="" className="h-8 w-8 rounded-lg shadow-md" /><span className="rounded-full bg-black/20 px-3 py-1 font-mono text-xs font-semibold text-amber-100 sm:text-sm">Sala: {roomCodeState}</span><span className="hidden text-xs text-amber-100/70 sm:inline">{room.players.length} jogadores</span></div><div className="flex items-center gap-2"><button onClick={() => setHelpOpen(true)} className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-amber-50 hover:bg-white/10" aria-label="Ajuda">Ajuda</button><div className="turn-indicator rounded-2xl px-4 py-2 text-center text-sm font-bold" aria-live="polite"><span className="block text-[10px] uppercase tracking-[0.2em] opacity-75">Próxima vez</span><span>{nextTurnLabel}</span></div><button onClick={() => void leave()} aria-label="Sair da sala" className="rounded-lg p-2 text-amber-100/70 hover:bg-white/10 hover:text-white"><LogOut size={16} /></button></div></div></header>
+    <header className="game-header sticky top-0 z-10 p-3 sm:p-4"><div className="mx-auto flex max-w-6xl items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><img src="/peixinho.svg" alt="" className="h-8 w-8 rounded-lg shadow-md" /><span className="rounded-full bg-black/20 px-3 py-1 font-mono text-xs font-semibold text-amber-100 sm:text-sm">Sala: {roomCodeState}</span><span className="hidden text-xs text-amber-100/70 sm:inline">{room.players.length} jogadores</span></div><div className="flex items-center gap-2"><button onClick={() => setHelpOpen(true)} className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-amber-50 hover:bg-white/10" aria-label="Ajuda">Ajuda</button><div className="turn-indicator rounded-2xl px-4 py-2 text-center text-sm font-bold" aria-live="polite"><span className="block text-[10px] uppercase tracking-[0.2em] opacity-75">Próxima vez</span><span>{nextTurnLabel}</span>{room.status === 'playing' && <span className={clsx('mt-1 block font-mono text-base leading-none', turnSecondsLeft <= 10 ? 'animate-pulse text-red-200' : 'text-amber-100')}>Tempo {turnTimerLabel}</span>}</div><button onClick={() => void leave()} aria-label="Sair da sala" className="rounded-lg p-2 text-amber-100/70 hover:bg-white/10 hover:text-white"><LogOut size={16} /></button></div></div></header>
     <div className="mx-auto grid w-full max-w-6xl flex-1 grid-cols-1 gap-4 p-3 sm:p-5 lg:grid-cols-[210px_minmax(0,1fr)_300px]">
       <aside className="order-2 rounded-3xl border border-white/10 bg-black/20 p-3 shadow-inner lg:order-1"><div className="mb-3 flex items-center justify-between"><h2 className="flex items-center gap-2 text-sm font-bold text-green-100"><Users size={16} /> Jogadores</h2><span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-bold text-green-200">{room.players.length}/10</span></div><div className="grid grid-cols-2 gap-2 lg:grid-cols-1">{room.players.map((player) => <button key={player.id} onClick={() => player.id !== currentUserId && myTurn && room.handCounts[player.id] > 0 && setOpponent(player)} className={clsx('min-w-0 rounded-2xl border border-white/5 bg-green-900/80 p-2 text-left shadow-lg transition hover:bg-green-800', opponent?.id === player.id && 'border-blue-400 bg-green-700 ring-2 ring-blue-500/60')}><div className="flex items-start justify-between gap-1"><b className="min-w-0 break-words text-xs font-semibold leading-tight">{player.name}{player.id === currentUserId && ' (você)'}</b><span className="shrink-0 text-[10px] text-yellow-300"><Trophy size={12} className="inline" /> {player.score}</span></div><div className="mt-2 flex items-center justify-between text-[10px] text-green-100/70"><span>{room.handCounts[player.id] ?? 0} cartas</span><span>{room.completedSets?.[player.id]?.length ?? 0} 🐟</span></div></button>)}</div></aside>
       <main className="table-area order-1 flex min-h-[360px] min-w-0 flex-col items-center justify-center rounded-[2rem] p-4 sm:p-6 lg:order-2"><div className="scoreboard-panel w-full max-w-xl rounded-3xl p-4 sm:p-5"><div className="mb-4 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/80">Placar da mesa</p><h2 className="text-lg font-black text-white">Peixinhos por jogador</h2></div><span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-amber-100">{room.deckCount} no monte</span></div><div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{playerScoreboard.map(({ player, sets }) => <div key={player.id} className={clsx('rounded-2xl border px-3 py-3', player.id === nextPlayer?.id ? 'border-amber-200/60 bg-amber-300/15' : 'border-white/10 bg-black/20')}><p className="truncate text-xs font-semibold text-amber-50" title={player.name}>{player.name}</p><p className="mt-1 text-2xl font-black text-amber-300">{sets.length}</p><p className="text-[10px] uppercase tracking-wider text-amber-100/60">peixinhos</p></div>)}</div></div><strong className={clsx('mt-5 rounded-full px-6 py-2 text-center shadow-lg', room.status === 'finished' ? 'bg-amber-300 text-amber-950' : myTurn ? 'bg-emerald-800 text-white' : 'bg-black/40 text-amber-50')}>{room.status === 'finished' ? 'FIM DE JOGO!' : myTurn ? 'É a sua vez!' : `Vez de ${room.players[room.turnIndex]?.name}`}</strong>{room.status === 'finished' ? <div className="mt-5 w-full max-w-xl rounded-2xl border border-amber-200/30 bg-amber-300/10 p-4 text-center text-amber-50"><h2 className="text-xl font-black">Vencedor(es): {winners.map((winner) => winner.name).join(', ')}</h2><p className="mt-1 text-sm">Pontuação: {winners.map((winner) => `${winner.name} (${winner.score})`).join(' · ')}</p><p className="mt-1 text-sm">Votos para jogar novamente: {(room.rematchVotes ?? []).length}/{room.players.length}</p><div className="mt-3 flex justify-center gap-2"><button onClick={() => void rematch()} className="rounded-xl bg-emerald-700 px-4 py-2 font-bold text-white">Quero jogar novamente</button><button onClick={() => void leave()} className="rounded-xl border border-amber-100/50 px-4 py-2 font-bold">Sair</button></div></div> : <div className="mt-5 flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-amber-50"><Card hidden /><span>{room.deckCount > 0 ? 'O monte está pronto para a próxima pesca automática.' : 'O monte está vazio.'}</span></div>}</main>
       <aside className="order-3 flex min-h-[320px] min-w-0 flex-col gap-3 rounded-3xl border border-white/10 bg-black/25 p-3 shadow-inner lg:max-h-[calc(100vh-9rem)]"><div className="flex items-center justify-between border-b border-white/10 pb-3"><div className="flex gap-1"><button onClick={() => setPanel('log')} className={clsx('rounded-lg px-3 py-2 text-sm font-semibold', panel === 'log' && 'bg-white/15')}>Histórico</button><button onClick={() => setPanel('chat')} className={clsx('flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-semibold', panel === 'chat' && 'bg-white/15')}><MessageCircle size={15} />Chat</button></div></div><div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl bg-black/15"><div className="max-h-56 overflow-y-auto p-3 pr-2 lg:max-h-[calc(100vh-20rem)]">{(panel === 'log' ? activeMessages.slice(-24) : activeMessages).map((message) => <div key={message.id} className="mb-2 text-sm leading-relaxed text-green-50/90">{panel === 'chat' && <b className="text-cyan-200">{message.sender_name}: </b>}{message.body}</div>)}<div ref={logEnd} /></div><div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/30 to-transparent" /></div>{panel === 'chat' && <div className="flex gap-2"><input value={chatText} onChange={(event) => setChatText(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && void sendChat()} className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white" placeholder="Mensagem..." aria-label="Mensagem do chat" /><button onClick={() => void sendChat()} aria-label="Enviar mensagem" className="rounded-xl bg-blue-600 px-3"><Send size={16} /></button></div>}<section className="rounded-2xl border border-yellow-300/20 bg-yellow-400/10 p-3"><button onClick={() => setSetsOpen((open) => !open)} className="flex w-full items-center justify-between text-left" aria-expanded={setsOpen}><span className="flex items-center gap-2 text-sm font-bold text-yellow-200"><Sparkles size={16} /> Quadras / peixinhos <span className="rounded-full bg-yellow-300/20 px-2 py-0.5 text-[10px]">{completedEntries.length}</span></span>{setsOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button>{setsOpen && <div className="mt-3 grid max-h-56 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-1">{completedEntries.length ? completedEntries.map((set) => <div key={`${set.createdAt}-${set.rank}`} className="rounded-xl bg-black/20 p-2 text-xs"><div className="mb-1 flex items-center justify-between"><b>{set.playerName}</b><span className="text-yellow-200">{set.rank}</span></div><div className="flex gap-1">{set.cards.map((card) => <div key={card} className="-mr-5 origin-left scale-50"><Card card={card} /></div>)}</div></div>) : <p className="text-xs text-yellow-100/70">Nenhuma quadra concluída ainda.</p>}</div>}</section></aside>
     </div>
     <footer className="hand-dock p-4"><div className="mx-auto flex max-w-6xl flex-col items-center gap-4">{myTurn && <div className="flex w-full flex-wrap justify-center gap-2 rounded-2xl border border-amber-200/60 bg-[#f5eedf] p-3 text-gray-700 shadow-2xl sm:w-auto"><select value={opponent?.id ?? ''} onChange={(event) => setOpponent(others.find((player) => player.id === event.target.value) ?? null)} aria-label="Escolher jogador" className="rounded-lg border border-amber-900/15 bg-white p-2"><option value="">Selecione jogador</option>{others.map((player) => <option key={player.id} value={player.id} disabled={!(room.handCounts[player.id] > 0)}>{player.name}</option>)}</select>{available.map((item) => <button type="button" key={item} onClick={() => setRank(item)} aria-pressed={rank === item} className={clsx('h-10 w-10 rounded-lg border-2 font-bold transition', rank === item ? 'border-emerald-800 bg-emerald-800 text-white' : 'border-amber-900/20 bg-white text-gray-700 hover:bg-amber-50')}>{item}</button>)}<button onClick={() => void play()} disabled={!opponent || !rank} className="rounded-xl bg-emerald-800 px-5 py-2 font-bold text-white disabled:bg-gray-300">Pedir!</button></div>}<div className="flex min-h-[120px] flex-wrap justify-center gap-2">{sorted.map((card, index) => <Card key={`${card}-${index}`} card={card} highlighted={recentCard === card} selected={rank === card.split('-')[0]} onClick={myTurn ? () => setRank(card.split('-')[0]) : undefined} />)}</div></div></footer>
-    {helpOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-labelledby="help-title"><section className="w-full max-w-lg rounded-3xl bg-white p-6 text-slate-800 shadow-2xl"><div className="flex items-center justify-between"><h2 id="help-title" className="text-xl font-black text-green-900">Como jogar Peixinho</h2><button onClick={() => setHelpOpen(false)} aria-label="Fechar ajuda" className="rounded-lg p-2 hover:bg-slate-100"><X size={18} /></button></div><ul className="mt-4 list-disc space-y-2 pl-5 text-sm"><li>Peça apenas um valor que tenha na sua mão.</li><li>Se o alvo tiver esse valor, recebe todas as cartas e joga novamente.</li><li>Se não tiver, pesca automaticamente do topo; acertar o valor mantém a vez.</li><li>Quatro cartas do mesmo valor formam um Peixinho e saem da mão.</li><li>No fim, pode votar para jogar novamente com a mesma sala.</li></ul><button onClick={() => setHelpOpen(false)} className="mt-5 w-full rounded-xl bg-green-600 py-2 font-bold text-white">Entendi</button></section></div>}
+    {helpOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-labelledby="help-title"><section className="w-full max-w-lg rounded-3xl bg-white p-6 text-slate-800 shadow-2xl"><div className="flex items-center justify-between"><h2 id="help-title" className="text-xl font-black text-green-900">Como jogar Peixinho</h2><button onClick={() => setHelpOpen(false)} aria-label="Fechar ajuda" className="rounded-lg p-2 hover:bg-slate-100"><X size={18} /></button></div><ul className="mt-4 list-disc space-y-2 pl-5 text-sm"><li>Peça apenas um valor que tenha na sua mão.</li><li>Se o alvo tiver esse valor, recebe todas as cartas e joga novamente.</li><li>Se não tiver, pesca automaticamente do topo; acertar o valor mantém a vez.</li><li>Cada turno tem 60 segundos; quando o tempo acaba, a vez passa automaticamente.</li><li>Quatro cartas do mesmo valor formam um Peixinho e saem da mão.</li><li>No fim, pode votar para jogar novamente com a mesma sala.</li></ul><button onClick={() => setHelpOpen(false)} className="mt-5 w-full rounded-xl bg-green-600 py-2 font-bold text-white">Entendi</button></section></div>}
   </div>;
 }

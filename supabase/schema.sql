@@ -243,6 +243,7 @@ begin
   public_data := jsonb_set(public_data, '{deckCount}', to_jsonb(52 - player_count * cards_per_player));
   public_data := jsonb_set(public_data, '{handCounts}', (select jsonb_object_agg(value->>'id', cards_per_player) from jsonb_array_elements(current_data->'players')));
   public_data := jsonb_set(public_data, '{turnIndex}', to_jsonb(first_turn));
+  public_data := jsonb_set(public_data, '{turnStartedAt}', to_jsonb(updated_at_value), true);
   public_data := jsonb_set(public_data, '{completedSets}', '{}'::jsonb);
   public_data := jsonb_set(public_data, '{rematchVotes}', '[]'::jsonb);
   public_data := jsonb_set(public_data, '{logs}', (current_data->'logs') || jsonb_build_array('O jogo começou! ' || first_player || ' começa.'));
@@ -251,6 +252,10 @@ begin
   return jsonb_build_object('data', public_data, 'hand', hand, 'drawnCard', null, 'updatedAt', updated_at_value);
 end;
 $$;
+
+update public.rooms as r
+set data = jsonb_set(r.data, '{turnStartedAt}', to_jsonb(now()), true), updated_at = now()
+where r.data->>'status' = 'playing' and not (r.data ? 'turnStartedAt');
 
 create or replace function public.play_room_turn(room_id text, player_id text, target_id text, requested_rank text)
 returns jsonb
@@ -273,6 +278,7 @@ declare
   next_index int;
   offset_value int;
   all_empty boolean := false;
+  turn_started_at timestamptz;
   public_data jsonb;
   updated_players jsonb;
   updated_at_value timestamptz := now();
@@ -280,6 +286,8 @@ begin
   select r.data into current_data from public.rooms as r where r.id = play_room_turn.room_id for update;
   if current_data is null then raise exception 'Sala não encontrada'; end if;
   if current_data->>'status' <> 'playing' then raise exception 'A partida não está ativa'; end if;
+  turn_started_at := coalesce(nullif(current_data->>'turnStartedAt', '')::timestamptz, clock_timestamp());
+  if clock_timestamp() >= turn_started_at + interval '60 seconds' then raise exception 'O tempo do turno acabou; aguardando a troca de vez'; end if;
   current_index := (current_data->>'turnIndex')::int;
   if current_data->'players'->current_index->>'id' <> player_id then raise exception 'Não é a sua vez'; end if;
   if target_id = player_id then raise exception 'Escolha outro jogador'; end if;
@@ -333,6 +341,7 @@ begin
       next_index := (current_index + offset_value) % jsonb_array_length(current_data->'players');
       exit when coalesce((current_data->'handCounts'->>(current_data->'players'->next_index->>'id'))::int, 0) > 0;
     end loop;
+    current_data := jsonb_set(current_data, '{turnStartedAt}', to_jsonb(clock_timestamp()), true);
   end if;
   all_empty := (current_data->>'deckCount')::int = 0 and not exists (select 1 from public.room_hands rh where rh.room_id = play_room_turn.room_id and jsonb_array_length(rh.cards) > 0);
   current_data := jsonb_set(current_data, '{turnIndex}', to_jsonb(next_index));
@@ -340,6 +349,62 @@ begin
   update public.rooms as r set data = current_data - 'hands' - 'deck', updated_at = updated_at_value where r.id = play_room_turn.room_id;
   select own_hand.cards into my_cards from public.room_hands as own_hand where own_hand.room_id = play_room_turn.room_id and own_hand.player_id = play_room_turn.player_id;
   return jsonb_build_object('data', current_data - 'hands' - 'deck', 'hand', my_cards, 'drawnCard', drawn_card, 'updatedAt', updated_at_value);
+end;
+$$;
+
+create or replace function public.expire_room_turn(room_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_data jsonb;
+  current_updated_at timestamptz;
+  turn_started_at timestamptz;
+  updated_at_value timestamptz;
+  current_index int;
+  next_index int;
+  offset_value int;
+  player_count int;
+  timed_out_player text;
+  all_empty boolean;
+begin
+  select r.data, r.updated_at into current_data, current_updated_at
+  from public.rooms as r where r.id = expire_room_turn.room_id for update;
+  if current_data is null then raise exception 'Sala não encontrada'; end if;
+  if current_data->>'status' <> 'playing' then
+    return jsonb_build_object('expired', false, 'data', current_data, 'hand', '[]'::jsonb, 'updatedAt', current_updated_at);
+  end if;
+
+  turn_started_at := coalesce(nullif(current_data->>'turnStartedAt', '')::timestamptz, current_updated_at);
+  if clock_timestamp() < turn_started_at + interval '60 seconds' then
+    return jsonb_build_object('expired', false, 'data', current_data, 'hand', '[]'::jsonb, 'updatedAt', current_updated_at);
+  end if;
+
+  player_count := jsonb_array_length(current_data->'players');
+  current_index := (current_data->>'turnIndex')::int;
+  timed_out_player := current_data->'players'->current_index->>'name';
+  next_index := current_index;
+  for offset_value in 1..player_count loop
+    next_index := (current_index + offset_value) % player_count;
+    exit when coalesce((current_data->'handCounts'->>(current_data->'players'->next_index->>'id'))::int, 0) > 0;
+  end loop;
+
+  updated_at_value := clock_timestamp();
+  current_data := jsonb_set(current_data, '{turnIndex}', to_jsonb(next_index), true);
+  current_data := jsonb_set(current_data, '{turnStartedAt}', to_jsonb(updated_at_value), true);
+  current_data := jsonb_set(current_data, '{logs}', coalesce(current_data->'logs', '[]'::jsonb) || jsonb_build_array('Tempo de ' || coalesce(timed_out_player, 'jogador') || ' esgotado; a vez foi passada.'));
+  all_empty := coalesce((current_data->>'deckCount')::int, 0) = 0 and not exists (
+    select 1 from public.room_hands as rh
+    where rh.room_id = expire_room_turn.room_id and jsonb_array_length(rh.cards) > 0
+  );
+  if all_empty then current_data := jsonb_set(current_data, '{status}', '"finished"'::jsonb, true); end if;
+
+  update public.rooms as r
+  set data = current_data - 'hands' - 'deck', updated_at = updated_at_value
+  where r.id = expire_room_turn.room_id;
+  return jsonb_build_object('expired', true, 'data', current_data - 'hands' - 'deck', 'hand', '[]'::jsonb, 'updatedAt', updated_at_value);
 end;
 $$;
 
@@ -374,6 +439,7 @@ $$;
 grant execute on function public.read_my_hand(text, text) to anon, authenticated;
 grant execute on function public.start_room_game(text, text) to anon, authenticated;
 grant execute on function public.play_room_turn(text, text, text, text) to anon, authenticated;
+grant execute on function public.expire_room_turn(text) to anon, authenticated;
 grant execute on function public.rematch_room(text, text) to anon, authenticated;
 
 do $$
