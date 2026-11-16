@@ -68,6 +68,7 @@ export default function App() {
   const currentUserId = user?.uid ?? '';
   const logEnd = useRef<HTMLDivElement>(null);
   const latestRoomUpdate = useRef<string | null>(null);
+  const latestHandRequest = useRef(0);
 
   useEffect(() => { setUser(signIn()); }, []);
   useEffect(() => {
@@ -81,7 +82,16 @@ export default function App() {
       setRoomUpdatedAt(snapshot.updatedAt);
       const next = snapshot.data as unknown as Room | null;
       setRoom(next);
-      if (next) void readMyHand(next.roomId, user.uid).then(setHand).catch(() => undefined);
+      const handRequest = ++latestHandRequest.current;
+      if (next) {
+        void readMyHand(next.roomId, user.uid)
+          .then((nextHand) => { if (active && handRequest === latestHandRequest.current) setHand(nextHand); })
+          .catch((handError) => {
+            if (active && handRequest === latestHandRequest.current) {
+              setError(handError instanceof Error ? handError.message.replace(/^Error:\s*/i, '') : 'Não foi possível carregar suas cartas.');
+            }
+          });
+      } else setHand([]);
       if (!next) { setView('menu'); setError('A sala não existe.'); }
       else setView(next.status === 'lobby' ? 'lobby' : 'game');
     };
@@ -156,6 +166,7 @@ export default function App() {
       if (latestRoom.players.length < 2) throw new Error('E necessario aguardar pelo menos outro jogador.');
       const result = await startRoomGame(latestRoom.roomId, user.uid);
       setRoom(result.data as unknown as Room);
+      latestHandRequest.current += 1;
       setHand(result.hand ?? []);
       setRoomUpdatedAt(result.updatedAt);
       setError('');
@@ -189,13 +200,18 @@ export default function App() {
       return;
     }
     try {
+      setError('');
       const result = await playRoomTurn(room.roomId, currentUserId, target.id, rank);
       setRoom(result.data as unknown as Room);
+      latestHandRequest.current += 1;
       setHand(result.hand);
       setRoomUpdatedAt(result.updatedAt);
       if (result.drawnCard) { setRecentCard(result.drawnCard); window.setTimeout(() => setRecentCard(null), 4000); }
       setRank(null); setOpponent(null);
-    } catch { setError('A jogada não foi sincronizada. Tente novamente.'); }
+    } catch (playError) {
+      const message = playError instanceof Error ? playError.message.replace(/^Error:\s*/i, '') : 'A jogada não foi sincronizada.';
+      setError(message);
+    }
   };
   const sendChat = async () => {
     const body = chatText.trim();
@@ -239,6 +255,7 @@ export default function App() {
   const winners = room.players.filter((player) => player.score === topScore);
 
   return <div className="game-shell flex min-h-screen flex-col text-white">
+    {error && <div role="alert" aria-live="assertive" className="mx-auto mt-3 w-[calc(100%-1.5rem)] max-w-6xl rounded-xl border border-red-300/40 bg-red-950/70 px-4 py-3 text-sm font-semibold text-red-100 shadow-lg">{error}<button type="button" onClick={() => setError('')} className="ml-3 underline decoration-red-200/70 underline-offset-2">Fechar</button></div>}
     <header className="game-header sticky top-0 z-10 p-3 sm:p-4"><div className="mx-auto flex max-w-6xl items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><img src="/peixinho.svg" alt="" className="h-8 w-8 rounded-lg shadow-md" /><span className="rounded-full bg-black/20 px-3 py-1 font-mono text-xs font-semibold text-amber-100 sm:text-sm">Sala: {roomCodeState}</span><span className="hidden text-xs text-amber-100/70 sm:inline">{room.players.length} jogadores</span></div><div className="flex items-center gap-2"><button onClick={() => setHelpOpen(true)} className="rounded-lg border border-white/10 px-3 py-2 text-xs font-bold text-amber-50 hover:bg-white/10" aria-label="Ajuda">Ajuda</button><div className="turn-indicator rounded-2xl px-4 py-2 text-center text-sm font-bold" aria-live="polite"><span className="block text-[10px] uppercase tracking-[0.2em] opacity-75">Próxima vez</span><span>{nextTurnLabel}</span></div><button onClick={() => void leave()} aria-label="Sair da sala" className="rounded-lg p-2 text-amber-100/70 hover:bg-white/10 hover:text-white"><LogOut size={16} /></button></div></div></header>
     <div className="mx-auto grid w-full max-w-6xl flex-1 grid-cols-1 gap-4 p-3 sm:p-5 lg:grid-cols-[210px_minmax(0,1fr)_300px]">
       <aside className="order-2 rounded-3xl border border-white/10 bg-black/20 p-3 shadow-inner lg:order-1"><div className="mb-3 flex items-center justify-between"><h2 className="flex items-center gap-2 text-sm font-bold text-green-100"><Users size={16} /> Jogadores</h2><span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-bold text-green-200">{room.players.length}/10</span></div><div className="grid grid-cols-2 gap-2 lg:grid-cols-1">{room.players.map((player) => <button key={player.id} onClick={() => player.id !== currentUserId && myTurn && room.handCounts[player.id] > 0 && setOpponent(player)} className={clsx('min-w-0 rounded-2xl border border-white/5 bg-green-900/80 p-2 text-left shadow-lg transition hover:bg-green-800', opponent?.id === player.id && 'border-blue-400 bg-green-700 ring-2 ring-blue-500/60')}><div className="flex items-start justify-between gap-1"><b className="min-w-0 break-words text-xs font-semibold leading-tight">{player.name}{player.id === currentUserId && ' (você)'}</b><span className="shrink-0 text-[10px] text-yellow-300"><Trophy size={12} className="inline" /> {player.score}</span></div><div className="mt-2 flex items-center justify-between text-[10px] text-green-100/70"><span>{room.handCounts[player.id] ?? 0} cartas</span><span>{room.completedSets?.[player.id]?.length ?? 0} 🐟</span></div></button>)}</div></aside>
