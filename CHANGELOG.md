@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0 - 2026-11-16
+
+- Added a synchronized 60-second turn clock that skips an expired player's turn transactionally in Supabase.
+- Preserved the clock when a successful request lets the same player continue, and restarted it when the turn changes.
+- Added timeout logging and migration support for games already in progress.
+
 ## 1.7.4 - 2026-11-06
 
 - Fixed the transactional start deal query so 2–10 player rooms, including 8 players, receive deterministic private hands and a valid remaining deck.

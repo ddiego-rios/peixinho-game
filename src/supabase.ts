@@ -3,7 +3,7 @@ import { createClient, type RealtimeChannel } from '@supabase/supabase-js';
 export type AppUser = { uid: string };
 export type RoomSnapshot = { data: Record<string, unknown> | null; updatedAt: string | null };
 export type ChatMessage = { id: string; room_id: string; sender_id: string; sender_name: string; body: string; created_at: string };
-export type PrivateRoomResult = { data: Record<string, unknown>; hand: string[]; drawnCard?: string | null; updatedAt: string };
+export type PrivateRoomResult = { data: Record<string, unknown>; hand: string[]; drawnCard?: string | null; updatedAt: string; expired?: boolean };
 type SupabaseError = { message?: string; code?: string; details?: string; hint?: string };
 
 const formatSupabaseError = (error: SupabaseError, operation: string) => {
@@ -74,6 +74,9 @@ export const startRoomGame = (roomId: string, playerId: string) =>
 
 export const playRoomTurn = (roomId: string, playerId: string, targetId: string, requestedRank: string) =>
   callPrivateRoomRpc('play_room_turn', { room_id: roomId, player_id: playerId, target_id: targetId, requested_rank: requestedRank });
+
+export const expireRoomTurn = (roomId: string) =>
+  callPrivateRoomRpc('expire_room_turn', { room_id: roomId });
 
 export const rematchRoom = (roomId: string, playerId: string) =>
   callPrivateRoomRpc('rematch_room', { room_id: roomId, player_id: playerId });
