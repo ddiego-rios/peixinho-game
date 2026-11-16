@@ -214,7 +214,7 @@ begin
   -- O limite máximo de dez jogadores pertence apenas ao ingresso na sala.
   if player_count < 2 then raise exception 'São necessários dois jogadores'; end if;
   if player_count > 10 then raise exception 'A sala excede o limite de dez jogadores'; end if;
-  if not exists (select 1 from jsonb_array_elements(current_data->'players') player where player->>'id' = player_id) then
+  if not exists (select 1 from jsonb_array_elements(current_data->'players') as member(value) where member.value->>'id' = player_id) then
     raise exception 'O host não está presente na sala';
   end if;
   cards_per_player := case when player_count <= 3 then 7 else 5 end;
