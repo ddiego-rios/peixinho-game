@@ -277,16 +277,16 @@ declare
   updated_players jsonb;
   updated_at_value timestamptz := now();
 begin
-  select data into current_data from public.rooms where id = room_id for update;
+  select r.data into current_data from public.rooms as r where r.id = play_room_turn.room_id for update;
   if current_data is null then raise exception 'Sala não encontrada'; end if;
   if current_data->>'status' <> 'playing' then raise exception 'A partida não está ativa'; end if;
   current_index := (current_data->>'turnIndex')::int;
   if current_data->'players'->current_index->>'id' <> player_id then raise exception 'Não é a sua vez'; end if;
   if target_id = player_id then raise exception 'Escolha outro jogador'; end if;
-  if not exists (select 1 from public.room_hands where room_id = play_room_turn.room_id and player_id = play_room_turn.player_id) then raise exception 'Jogador não encontrado'; end if;
-  select cards into my_cards from public.room_hands where room_id = play_room_turn.room_id and player_id = play_room_turn.player_id for update;
+  if not exists (select 1 from public.room_hands as own_hand where own_hand.room_id = play_room_turn.room_id and own_hand.player_id = play_room_turn.player_id) then raise exception 'Jogador não encontrado'; end if;
+  select own_hand.cards into my_cards from public.room_hands as own_hand where own_hand.room_id = play_room_turn.room_id and own_hand.player_id = play_room_turn.player_id for update;
   if not exists (select 1 from jsonb_array_elements_text(my_cards) as card(value) where split_part(value, '-', 1) = requested_rank) then raise exception 'Só pode pedir um valor que tenha na sua mão'; end if;
-  select cards into target_cards from public.room_hands where room_id = play_room_turn.room_id and player_id = play_room_turn.target_id for update;
+  select target_hand.cards into target_cards from public.room_hands as target_hand where target_hand.room_id = play_room_turn.room_id and target_hand.player_id = play_room_turn.target_id for update;
   if target_cards is null or jsonb_array_length(target_cards) = 0 then raise exception 'O jogador escolhido não tem cartas'; end if;
   select coalesce(jsonb_agg(value), '[]'::jsonb) into got from jsonb_array_elements_text(target_cards) as card(value) where split_part(value, '-', 1) = requested_rank;
   if jsonb_array_length(got) > 0 then
@@ -294,13 +294,13 @@ begin
     my_cards := my_cards || got;
     keep_turn := true;
   else
-    select cards into deck_cards from public.room_decks where room_id = play_room_turn.room_id for update;
+    select deck.cards into deck_cards from public.room_decks as deck where deck.room_id = play_room_turn.room_id for update;
     if jsonb_array_length(deck_cards) > 0 then
       drawn_card := deck_cards->>0;
       deck_cards := deck_cards - 0;
       my_cards := my_cards || jsonb_build_array(drawn_card);
       keep_turn := drawn_card like (requested_rank || '-%');
-      update public.room_decks set cards = deck_cards, updated_at = updated_at_value where room_id = play_room_turn.room_id;
+      update public.room_decks as deck set cards = deck_cards, updated_at = updated_at_value where deck.room_id = play_room_turn.room_id;
     end if;
   end if;
   for completed_rank in select distinct split_part(value, '-', 1) from jsonb_array_elements_text(my_cards) as card(value) loop
@@ -312,16 +312,16 @@ begin
     end if;
   end loop;
   if jsonb_array_length(my_cards) = 0 then
-    select cards into deck_cards from public.room_decks where room_id = play_room_turn.room_id for update;
+    select deck.cards into deck_cards from public.room_decks as deck where deck.room_id = play_room_turn.room_id for update;
     if jsonb_array_length(deck_cards) > 0 then
       drawn_card := coalesce(drawn_card, deck_cards->>0);
       deck_cards := deck_cards - 0;
       my_cards := jsonb_build_array(drawn_card);
-      update public.room_decks set cards = deck_cards, updated_at = updated_at_value where room_id = play_room_turn.room_id;
+      update public.room_decks as deck set cards = deck_cards, updated_at = updated_at_value where deck.room_id = play_room_turn.room_id;
     end if;
   end if;
-  update public.room_hands set cards = my_cards, updated_at = updated_at_value where room_id = play_room_turn.room_id and player_id = play_room_turn.player_id;
-  update public.room_hands set cards = target_cards, updated_at = updated_at_value where room_id = play_room_turn.room_id and player_id = play_room_turn.target_id;
+  update public.room_hands as own_hand set cards = my_cards, updated_at = updated_at_value where own_hand.room_id = play_room_turn.room_id and own_hand.player_id = play_room_turn.player_id;
+  update public.room_hands as target_hand set cards = target_cards, updated_at = updated_at_value where target_hand.room_id = play_room_turn.room_id and target_hand.player_id = play_room_turn.target_id;
   select jsonb_agg(jsonb_set(player, '{score}', to_jsonb((player->>'score')::int + case when player->>'id' = player_id then completed_count else 0 end))) into updated_players from jsonb_array_elements(current_data->'players') player;
   current_data := jsonb_set(current_data, '{players}', updated_players);
   current_data := jsonb_set(current_data, '{handCounts}', (select jsonb_object_agg(rh.player_id, jsonb_array_length(rh.cards)) from public.room_hands rh where rh.room_id = play_room_turn.room_id));
@@ -337,8 +337,8 @@ begin
   all_empty := (current_data->>'deckCount')::int = 0 and not exists (select 1 from public.room_hands rh where rh.room_id = play_room_turn.room_id and jsonb_array_length(rh.cards) > 0);
   current_data := jsonb_set(current_data, '{turnIndex}', to_jsonb(next_index));
   if all_empty then current_data := jsonb_set(current_data, '{status}', '"finished"'); end if;
-  update public.rooms set data = current_data - 'hands' - 'deck', updated_at = updated_at_value where id = room_id;
-  select cards into my_cards from public.room_hands where room_id = play_room_turn.room_id and player_id = play_room_turn.player_id;
+  update public.rooms as r set data = current_data - 'hands' - 'deck', updated_at = updated_at_value where r.id = play_room_turn.room_id;
+  select own_hand.cards into my_cards from public.room_hands as own_hand where own_hand.room_id = play_room_turn.room_id and own_hand.player_id = play_room_turn.player_id;
   return jsonb_build_object('data', current_data - 'hands' - 'deck', 'hand', my_cards, 'drawnCard', drawn_card, 'updatedAt', updated_at_value);
 end;
 $$;
