@@ -229,13 +229,13 @@ begin
     from jsonb_array_elements(shuffled) with ordinality as dealt(card, position)
     where dealt.position > player_index * cards_per_player
       and dealt.position <= (player_index + 1) * cards_per_player;
-    insert into public.room_hands(room_id, player_id, cards) values (room_id, player->>'id', hand);
+    insert into public.room_hands(room_id, player_id, cards) values (start_room_game.room_id, player->>'id', hand);
     player_index := player_index + 1;
   end loop;
   select coalesce(jsonb_agg(undealt.card order by undealt.position), '[]'::jsonb) into remaining
   from jsonb_array_elements(shuffled) with ordinality as undealt(card, position)
   where undealt.position > player_count * cards_per_player;
-  insert into public.room_decks(room_id, cards) values (room_id, remaining);
+  insert into public.room_decks(room_id, cards) values (start_room_game.room_id, remaining);
   first_turn := floor(random() * player_count);
   first_player := current_data->'players'->first_turn->>'name';
   public_data := current_data - 'hands' - 'deck';
