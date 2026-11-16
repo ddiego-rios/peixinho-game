@@ -205,7 +205,7 @@ declare
   first_player text;
   updated_at_value timestamptz := now();
 begin
-  select data into current_data from public.rooms where id = room_id for update;
+  select r.data into current_data from public.rooms as r where r.id = start_room_game.room_id for update;
   if current_data is null then raise exception 'Sala não encontrada'; end if;
   if current_data->>'hostId' <> player_id then raise exception 'Apenas o host pode iniciar'; end if;
   if current_data->>'status' <> 'lobby' then raise exception 'A partida já começou'; end if;
@@ -222,8 +222,8 @@ begin
   from (select rank || '-' || suit as deck_card
         from unnest(array['2','3','4','5','6','7','8','9','10','J','Q','K','A']) rank
         cross join unnest(array['H','D','C','S']) suit) cards;
-  delete from public.room_hands where room_id = start_room_game.room_id;
-  delete from public.room_decks where room_id = start_room_game.room_id;
+  delete from public.room_hands as rh where rh.room_id = start_room_game.room_id;
+  delete from public.room_decks as rd where rd.room_id = start_room_game.room_id;
   for player in select players.value from jsonb_array_elements(current_data->'players') as players(value) loop
     select coalesce(jsonb_agg(dealt.card order by dealt.position), '[]'::jsonb) into hand
     from jsonb_array_elements(shuffled) with ordinality as dealt(card, position)
@@ -246,8 +246,8 @@ begin
   public_data := jsonb_set(public_data, '{completedSets}', '{}'::jsonb);
   public_data := jsonb_set(public_data, '{rematchVotes}', '[]'::jsonb);
   public_data := jsonb_set(public_data, '{logs}', (current_data->'logs') || jsonb_build_array('O jogo começou! ' || first_player || ' começa.'));
-  update public.rooms set data = public_data, updated_at = updated_at_value where id = room_id;
-  select cards into hand from public.room_hands where room_id = start_room_game.room_id and player_id = start_room_game.player_id;
+  update public.rooms as r set data = public_data, updated_at = updated_at_value where r.id = start_room_game.room_id;
+  select rh.cards into hand from public.room_hands as rh where rh.room_id = start_room_game.room_id and rh.player_id = start_room_game.player_id;
   return jsonb_build_object('data', public_data, 'hand', hand, 'drawnCard', null, 'updatedAt', updated_at_value);
 end;
 $$;
