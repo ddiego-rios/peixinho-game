@@ -238,7 +238,7 @@ begin
   insert into public.room_decks(room_id, cards) values (start_room_game.room_id, remaining);
   first_turn := floor(random() * player_count);
   first_player := current_data->'players'->first_turn->>'name';
-  public_data := current_data - 'hands' - 'deck';
+  public_data := current_data - 'hands' - 'deck' - 'lastAction';
   public_data := jsonb_set(public_data, '{status}', '"playing"');
   public_data := jsonb_set(public_data, '{deckCount}', to_jsonb(52 - player_count * cards_per_player));
   public_data := jsonb_set(public_data, '{handCounts}', (select jsonb_object_agg(value->>'id', cards_per_player) from jsonb_array_elements(current_data->'players')));
@@ -270,6 +270,8 @@ declare
   deck_cards jsonb;
   got jsonb;
   drawn_card text := null;
+  action_card_count int := 0;
+  action_kind text;
   keep_turn boolean := false;
   completed_rank text;
   completed_cards jsonb;
@@ -334,7 +336,10 @@ begin
   current_data := jsonb_set(current_data, '{players}', updated_players);
   current_data := jsonb_set(current_data, '{handCounts}', (select jsonb_object_agg(rh.player_id, jsonb_array_length(rh.cards)) from public.room_hands rh where rh.room_id = play_room_turn.room_id));
   current_data := jsonb_set(current_data, '{deckCount}', to_jsonb((select jsonb_array_length(rd.cards) from public.room_decks rd where rd.room_id = play_room_turn.room_id)));
-  current_data := jsonb_set(current_data, '{logs}', (current_data->'logs') || jsonb_build_array(current_data->'players'->current_index->>'name' || ' pediu ' || requested_rank || ' a ' || (select player->>'name' from jsonb_array_elements(current_data->'players') player where player->>'id' = target_id) || case when jsonb_array_length(got) > 0 then ' e recebeu cartas.' else '; não encontrou e pescou do topo do monte.' end));
+  action_card_count := jsonb_array_length(got);
+  action_kind := case when action_card_count > 0 then 'transfer' when drawn_card is not null then 'draw' else 'miss' end;
+  current_data := jsonb_set(current_data, '{lastAction}', jsonb_build_object('id', updated_at_value::text, 'actorId', player_id, 'targetId', target_id, 'kind', action_kind, 'cardCount', action_card_count, 'requestedRank', requested_rank, 'createdAt', extract(epoch from updated_at_value) * 1000), true);
+  current_data := jsonb_set(current_data, '{logs}', (current_data->'logs') || jsonb_build_array(current_data->'players'->current_index->>'name' || ' pediu ' || requested_rank || ' a ' || (select player->>'name' from jsonb_array_elements(current_data->'players') player where player->>'id' = target_id) || case when action_card_count > 0 then '; ' || (select player->>'name' from jsonb_array_elements(current_data->'players') player where player->>'id' = target_id) || ' deu ' || action_card_count::text || case when action_card_count = 1 then ' carta a ' else ' cartas a ' end || (current_data->'players'->current_index->>'name') || '.' else '; não encontrou e pescou do topo do monte.' end));
   next_index := current_index;
   if not keep_turn or jsonb_array_length(my_cards) = 0 then
     for offset_value in 1..jsonb_array_length(current_data->'players') loop

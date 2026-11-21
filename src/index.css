@@ -13,3 +13,19 @@
 .playing-card{background:linear-gradient(145deg,#fffef9,#eee5d2);box-shadow:0 7px 15px rgba(0,0,0,.22),inset 0 0 0 1px rgba(128,99,52,.1)}
 .card-back{background:repeating-linear-gradient(45deg,#9d7139 0 3px,#80582d 3px 6px);box-shadow:0 7px 15px rgba(0,0,0,.22),inset 0 0 0 2px rgba(239,211,159,.45)}
 @media(max-width:640px){.table-area{border-width:6px}.table-area:before{inset:8px}}
+
+/* Card movement, turn announcements and fading chat */
+.table-area{background-image:radial-gradient(ellipse at 50% 50%,rgba(110,180,115,.18),transparent 62%),repeating-linear-gradient(135deg,rgba(255,255,255,.018) 0 1px,transparent 1px 9px)}
+.card-action-menu{backdrop-filter:blur(12px);box-shadow:0 18px 45px rgba(0,0,0,.28),inset 0 1px rgba(255,255,255,.9)}
+.card-event-toast{background:linear-gradient(145deg,rgba(16,75,51,.97),rgba(14,41,32,.97));border-color:rgba(245,216,154,.55);animation:card-event-pop 2.6s cubic-bezier(.2,.8,.2,1) both}
+.card-event-give{background:linear-gradient(145deg,rgba(90,42,35,.97),rgba(45,27,27,.97));border-color:rgba(244,164,137,.55)}
+.card-event-card{filter:drop-shadow(0 12px 12px rgba(0,0,0,.35))}
+.card-fly-in{animation:card-fly-in .65s cubic-bezier(.18,.78,.2,1) both}
+.card-fly-out{animation:card-fly-out .65s cubic-bezier(.55,.05,.8,.2) both}
+.turn-announcement{animation:turn-announcement 2.2s cubic-bezier(.2,.8,.2,1) both}
+.message-scroll{mask-image:linear-gradient(to bottom,transparent 0%,#000 12%,#000 100%);scrollbar-color:rgba(234,207,153,.38) transparent;scrollbar-width:thin}
+.chat-message-fade{transition:opacity 1s ease}
+@keyframes card-event-pop{0%{opacity:0;transform:translateY(16px) scale(.92)}10%{opacity:1;transform:translateY(0) scale(1)}86%{opacity:1;transform:translateY(0) scale(1)}100%{opacity:0;transform:translateY(-8px) scale(.98)}}
+@keyframes card-fly-in{from{opacity:0;transform:translateY(48px) rotate(-12deg) scale(.65)}to{opacity:1;transform:translateY(0) rotate(0) scale(1)}}
+@keyframes card-fly-out{from{opacity:1;transform:translateY(0) rotate(0) scale(1)}to{opacity:0;transform:translate(90px,-45px) rotate(16deg) scale(.7)}}
+@keyframes turn-announcement{0%{opacity:0;transform:scale(.72)}15%{opacity:1;transform:scale(1.06)}80%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(.98)}}
