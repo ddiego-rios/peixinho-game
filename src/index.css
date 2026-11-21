@@ -29,3 +29,5 @@
 @keyframes card-fly-in{from{opacity:0;transform:translateY(48px) rotate(-12deg) scale(.65)}to{opacity:1;transform:translateY(0) rotate(0) scale(1)}}
 @keyframes card-fly-out{from{opacity:1;transform:translateY(0) rotate(0) scale(1)}to{opacity:0;transform:translate(90px,-45px) rotate(16deg) scale(.7)}}
 @keyframes turn-announcement{0%{opacity:0;transform:scale(.72)}15%{opacity:1;transform:scale(1.06)}80%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(.98)}}
+
+.xico-easter-egg{filter:drop-shadow(0 4px 5px rgba(0,0,0,.45));animation:xico-bob 2.4s ease-in-out infinite;flex:none}@keyframes xico-bob{0%,100%{transform:rotate(-3deg) translateY(0)}50%{transform:rotate(3deg) translateY(-3px)}}

@@ -246,7 +246,7 @@ begin
   public_data := jsonb_set(public_data, '{turnStartedAt}', to_jsonb(updated_at_value), true);
   public_data := jsonb_set(public_data, '{completedSets}', '{}'::jsonb);
   public_data := jsonb_set(public_data, '{rematchVotes}', '[]'::jsonb);
-  public_data := jsonb_set(public_data, '{logs}', (current_data->'logs') || jsonb_build_array('O jogo começou! ' || first_player || ' começa.'));
+  public_data := jsonb_set(public_data, '{logs}', jsonb_build_array('O jogo começou! ' || first_player || ' começa.'));
   update public.rooms as r set data = public_data, updated_at = updated_at_value where r.id = start_room_game.room_id;
   select rh.cards into hand from public.room_hands as rh where rh.room_id = start_room_game.room_id and rh.player_id = start_room_game.player_id;
   return jsonb_build_object('data', public_data, 'hand', hand, 'drawnCard', null, 'updatedAt', updated_at_value);
@@ -321,6 +321,7 @@ begin
       completed_count := completed_count + 1;
     end if;
   end loop;
+  if completed_count > 0 then keep_turn := true; end if;
   if jsonb_array_length(my_cards) = 0 then
     select deck.cards into deck_cards from public.room_decks as deck where deck.room_id = play_room_turn.room_id for update;
     if jsonb_array_length(deck_cards) > 0 then
@@ -347,6 +348,8 @@ begin
       exit when coalesce((current_data->'handCounts'->>(current_data->'players'->next_index->>'id'))::int, 0) > 0;
     end loop;
     current_data := jsonb_set(current_data, '{turnStartedAt}', to_jsonb(clock_timestamp()), true);
+  else
+    current_data := jsonb_set(current_data, '{turnStartedAt}', to_jsonb(updated_at_value), true);
   end if;
   all_empty := (current_data->>'deckCount')::int = 0 and not exists (select 1 from public.room_hands rh where rh.room_id = play_room_turn.room_id and jsonb_array_length(rh.cards) > 0);
   current_data := jsonb_set(current_data, '{turnIndex}', to_jsonb(next_index));
